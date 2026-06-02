@@ -156,13 +156,19 @@ function CalendarRow({ event }: { event: EconomicEvent }) {
     low: "bg-impact-low",
   }[event.impact];
 
-  // Highlight if actual deviates significantly from forecast
-  const hasDeviation = event.actual && event.forecast && (() => {
-    const a = parseFloat(event.actual!.replace(/[%KMB]/g, ""));
-    const f = parseFloat(event.forecast!.replace(/[%KMB]/g, ""));
-    if (isNaN(a) || isNaN(f)) return false;
-    return Math.abs(a - f) > Math.abs(f) * 0.15;
+  // Compute surprise (actual vs forecast) — drives BEAT/MISS badge + color intensity
+  const surprise = (() => {
+    if (!event.actual || !event.forecast) return null;
+    const a = parseFloat(event.actual.replace(/[%KMB+,]/g, ""));
+    const f = parseFloat(event.forecast.replace(/[%KMB+,]/g, ""));
+    if (isNaN(a) || isNaN(f)) return null;
+    const diff = a - f;
+    const denom = Math.max(Math.abs(f), 0.05);  // avoid div-by-zero on 0% forecasts
+    const pct = (diff / denom) * 100;
+    return { diff, pct, beat: diff > 0, miss: diff < 0 };
   })();
+  const hasDeviation = surprise && Math.abs(surprise.pct) > 15;
+  const isBigSurprise = surprise && Math.abs(surprise.pct) > 50;
 
   return (
     <div
@@ -195,9 +201,19 @@ function CalendarRow({ event }: { event: EconomicEvent }) {
         )}
       </div>
 
-      {/* Event name */}
-      <span className={`truncate ${event.impact === "high" ? "font-semibold text-foreground" : "text-secondary-foreground"}`}>
-        {event.event}
+      {/* Event name + surprise badge inline */}
+      <span className={`truncate flex items-center gap-1.5 ${event.impact === "high" ? "font-semibold text-foreground" : "text-secondary-foreground"}`}>
+        <span className="truncate">{event.event}</span>
+        {surprise && hasDeviation && (
+          <span
+            className={`shrink-0 text-[8px] px-1 py-0.5 rounded font-bold uppercase tracking-wider ${
+              surprise.beat ? "bg-bullish/20 text-bullish" : "bg-bearish/20 text-bearish"
+            } ${isBigSurprise ? "animate-pulse" : ""}`}
+            title={`${surprise.beat ? "Beat" : "Miss"} forecast by ${Math.abs(surprise.pct).toFixed(0)}%`}
+          >
+            {surprise.beat ? "▲ BEAT" : "▼ MISS"}{isBigSurprise ? " ⚡" : ""}
+          </span>
+        )}
       </span>
 
       {/* Actual — green flash if sourced directly from BLS (no FF delay) */}

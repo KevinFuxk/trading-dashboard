@@ -60,6 +60,42 @@ export interface NewsItem {
   isBreaking?: boolean;
 }
 
+// ===== Premarket / Intraday Movers =====
+export type MoverCategory = "gainers" | "losers" | "active";
+export interface MarketMover {
+  symbol: string;             // e.g. "NVDA"
+  name: string;               // e.g. "NVIDIA Corporation"
+  price: number;              // current/last price
+  change: number;             // absolute $ change
+  changePct: number;          // % change vs prev close
+  volume: number;             // shares traded today
+  avgVolume?: number;         // 3-month avg daily volume
+  marketCap?: number;         // in dollars
+  sector?: string;            // e.g. "Technology"
+  exchange?: string;          // NYSE, NASDAQ
+  weekPerf?: number;          // 5-day % perf
+  monthPerf?: number;         // 1-month % perf
+  preMarketChangePct?: number;  // premarket-specific % move (when available)
+}
+
+export interface MoversData {
+  asOf: string;               // ISO timestamp
+  marketState: "PRE" | "REGULAR" | "POST" | "CLOSED";
+  gainers: MarketMover[];
+  losers: MarketMover[];
+  active: MarketMover[];
+}
+
+// ===== FX & Commodity Ticker (header strip) =====
+export interface FXQuote {
+  symbol: string;       // e.g. "GBPUSD", "BRENT"
+  display: string;      // e.g. "GBP/USD", "Brent"
+  price: number;
+  change: number;       // absolute daily change
+  changePct: number;    // % daily change
+  asOf: string;         // ISO timestamp of the quote
+}
+
 // ===== Alerts =====
 export type AlertType = "event_imminent" | "data_release" | "deviation" | "keyword" | "breaking";
 export type AlertSeverity = "critical" | "warning" | "info";

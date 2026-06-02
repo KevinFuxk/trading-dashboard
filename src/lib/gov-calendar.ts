@@ -89,8 +89,18 @@ function getTodaysReleaseGroup(): "cpi" | "ppi" | "jobs" | null {
 }
 
 // ─── BLS API fetcher ──────────────────────────────────────────────────────────
+// BLS has a hard 500-req/day limit per registration key. When we hit it, all
+// subsequent requests fail until the daily counter resets at midnight ET.
+// We track the "exhausted" state and skip BLS calls for the rest of the day,
+// so the sniper isn't burning cycles on doomed requests. FRED takes over.
+let blsExhaustedUntil = 0;
 
 async function fetchBLSGroup(group: "cpi" | "ppi" | "jobs" | null, year: number): Promise<BLSDataPoint[]> {
+  // Skip BLS entirely if we know we're rate-limited (saves ~8s per call timing out)
+  if (Date.now() < blsExhaustedUntil) {
+    throw new Error("BLS quota exhausted — using FRED");
+  }
+
   const configs = group ? BLS_SERIES.filter(s => s.releaseGroup === group) : BLS_SERIES;
   const seriesIds = configs.map(s => s.id);
 
@@ -115,8 +125,25 @@ async function fetchBLSGroup(group: "cpi" | "ppi" | "jobs" | null, year: number)
   if (!res.ok) throw new Error(`BLS ${res.status}`);
   const json = await res.json() as {
     status: string;
+    message?: string[];
     Results?: { series: Array<{ seriesID: string; data: Array<{ year: string; period: string; value: string }> }> };
   };
+
+  // Detect daily quota exhaustion → skip BLS until midnight ET
+  if (json.status === "REQUEST_NOT_PROCESSED" &&
+      json.message?.some(m => m.toLowerCase().includes("threshold"))) {
+    // Compute next midnight ET (BLS quota resets there)
+    const now = new Date();
+    const m = now.getUTCMonth();
+    const isEDT = (m > 2 && m < 10);
+    const etOffset = isEDT ? -4 : -5;
+    const etNow = new Date(now.getTime() + etOffset * 3600_000);
+    const tomorrowET = new Date(Date.UTC(etNow.getUTCFullYear(), etNow.getUTCMonth(), etNow.getUTCDate() + 1, -etOffset, 0, 0));
+    blsExhaustedUntil = tomorrowET.getTime();
+    const hoursLeft = ((blsExhaustedUntil - Date.now()) / 3600_000).toFixed(1);
+    console.warn(`[BLS] Daily quota exhausted — falling through to FRED for next ${hoursLeft}h until midnight ET`);
+    throw new Error("BLS quota exhausted");
+  }
 
   if (json.status !== "REQUEST_SUCCEEDED" || !json.Results) {
     throw new Error(`BLS status: ${json.status}`);
@@ -659,13 +686,15 @@ async function _refreshBlsInBackground(): Promise<void> {
 }
 
 // ─── Release Sniper ───────────────────────────────────────────────────────────
-// Polls at 1s intervals during release windows.
-// Races BLS + FRED simultaneously — whoever detects the new period first fires.
+// Adaptive polling around release windows:
+//   T-10s → T+30s   : 250ms burst (4x finer detection)
+//   else (in window): 1s
+// Races BLS + FRED — whichever detects the new period first fires.
 
 interface SniperState {
   active: boolean;
   lastKnownPeriod: string;
-  timer: ReturnType<typeof setInterval> | null;
+  timer: ReturnType<typeof setTimeout> | null;
   onUpdate: (data: BLSDataPoint[]) => void;
 }
 
@@ -693,7 +722,7 @@ export function startReleaseSniperIfNeeded(onUpdate: (data: BLSDataPoint[]) => v
 
   if (!isNearRelease || sniperState.active) return;
 
-  console.log("[SNIPER] 🎯 Release window — polling BLS+FRED every 1s");
+  console.log("[SNIPER] 🎯 Release window — adaptive polling: 250ms burst at T-10s..T+30s, 1s otherwise");
   sniperState.active = true;
 
   // Seed lastKnownPeriod so we can detect the flip
@@ -701,15 +730,26 @@ export function startReleaseSniperIfNeeded(onUpdate: (data: BLSDataPoint[]) => v
     if (data.length > 0) sniperState.lastKnownPeriod = `${data[0].year}-${data[0].period}`;
   });
 
-  sniperState.timer = setInterval(async () => {
-    // ONLY race BLS + FRED for the 7 high-impact series. Don't bypass the
-    // full bls_data cache here — that would force re-fetch of all 21 FRED
-    // extras every 1s and blow past the 120/min rate limit.
+  // Adaptive polling: burst (250ms) right around 8:30:00, otherwise 1s.
+  // Reduces detection lag from up-to-1s to up-to-250ms in the critical window.
+  // Outside the burst, conservative 1s avoids burning the FRED 120/min limit.
+  function snipePollDelay(): number {
+    const now = new Date();
+    const off = isEDT(now) ? -4 : -5;
+    const et = new Date(now.getTime() + off * 3600_000);
+    const sec = et.getUTCSeconds() + et.getUTCMinutes() * 60;
+    // Distance in seconds from 8:30:00 ET (= 30*60 = 1800 seconds since 8:00)
+    const fromRelease = sec - (8 * 3600 + 30 * 60);
+    if (fromRelease >= -10 && fromRelease <= 30) return 250;  // BURST: 4x faster
+    return 1_000;
+  }
+
+  async function tick() {
+    if (!sniperState.active) return;
+    const t0 = Date.now();
     const year = new Date().getFullYear();
     const group = getTodaysReleaseGroup();
 
-    // Race BLS + FRED simultaneously at 1s.
-    // BLS wins ~234ms (1 call), FRED is fallback at ~745ms (7 calls).
     const [blsR, fredR] = await Promise.allSettled([
       fetchBLSGroup(group, year),
       fetchFREDGroup(group),
@@ -723,14 +763,13 @@ export function startReleaseSniperIfNeeded(onUpdate: (data: BLSDataPoint[]) => v
     for (const fresh of candidates) {
       const newPeriod = `${fresh[0].year}-${fresh[0].period}`;
       if (newPeriod !== sniperState.lastKnownPeriod && sniperState.lastKnownPeriod !== "") {
-        console.log(`[SNIPER] 🎯 NEW DATA: ${sniperState.lastKnownPeriod} → ${newPeriod}`);
+        const detectMs = Date.now() - t0;
+        console.log(`[SNIPER] 🎯 NEW DATA in ${detectMs}ms: ${sniperState.lastKnownPeriod} → ${newPeriod}`);
         sniperState.lastKnownPeriod = newPeriod;
-        // Now do ONE full refresh — bypass cache and re-fetch ALL series
-        // (BLS + FRED + Census + 21 extras) so cache stays complete.
         cache.delete("bls_data");
         const fullData = await fetchBLSData().catch(() => fresh);
         sniperState.onUpdate(fullData);
-        break; // first winner fires, stop checking others
+        break;
       }
     }
 
@@ -744,12 +783,20 @@ export function startReleaseSniperIfNeeded(onUpdate: (data: BLSDataPoint[]) => v
     if (!stillNear) {
       console.log("[SNIPER] Window passed — stopping");
       stopReleaseSniperIfActive();
+      return;
     }
-  }, 1_000); // 1s — was 2s
+
+    // Schedule next tick at adaptive interval
+    const delay = snipePollDelay();
+    sniperState.timer = setTimeout(tick, delay);
+  }
+
+  // Kick off the loop
+  sniperState.timer = setTimeout(tick, 250);
 }
 
 export function stopReleaseSniperIfActive() {
-  if (sniperState.timer) { clearInterval(sniperState.timer); sniperState.timer = null; }
+  if (sniperState.timer) { clearTimeout(sniperState.timer); sniperState.timer = null; }
   sniperState.active = false;
 }
 

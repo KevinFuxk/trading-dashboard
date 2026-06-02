@@ -871,6 +871,317 @@ async function timedFetch(url: string, ms: number, init?: RequestInit): Promise<
 }
 
 // ============================================================
+//  FX & Commodity Ticker — header strip
+//  Yahoo Finance for live FX + futures prices. 60s SWR.
+//  Symbols: GBPUSD (primary trading pair), EURUSD, USDJPY, Brent, WTI
+// ============================================================
+import type { FXQuote } from "./types";
+let yahooFXNextAllowed = 0;
+
+const TICKER_SYMBOLS: { yahoo: string; stooq: string; symbol: string; display: string }[] = [
+  { yahoo: "GBPUSD=X", stooq: "gbpusd", symbol: "GBPUSD", display: "GBP/USD" },
+  { yahoo: "EURUSD=X", stooq: "eurusd", symbol: "EURUSD", display: "EUR/USD" },
+  { yahoo: "USDJPY=X", stooq: "usdjpy", symbol: "USDJPY", display: "USD/JPY" },
+  { yahoo: "BZ=F",     stooq: "cb.f",   symbol: "BRENT",  display: "Brent" },
+  { yahoo: "CL=F",     stooq: "cl.f",   symbol: "WTI",    display: "WTI" },
+];
+
+export async function fetchFXTicker(): Promise<FXQuote[]> {
+  // 60s SWR — FX moves continuously but ticker doesn't need millisecond precision
+  return withSWR("fx_ticker", 60_000, _fetchFXTicker,
+    { persistKey: "fx_ticker", persistMaxAgeMs: 6 * 3600_000 });
+}
+
+async function _fetchFXTicker(): Promise<FXQuote[]> {
+  const browserHeaders = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+  };
+
+  async function fromYahoo(t: typeof TICKER_SYMBOLS[number]): Promise<FXQuote | null> {
+    if (Date.now() < yahooFXNextAllowed) return null;
+    try {
+      const r = await timedFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${t.yahoo}`, 4_000, { headers: browserHeaders });
+      if (r.status === 429) { yahooFXNextAllowed = Date.now() + 10 * 60_000; return null; }
+      if (!r.ok) return null;
+      const j = await r.json() as { chart?: { result?: Array<{ meta: { regularMarketPrice: number; previousClose: number; regularMarketTime: number } }> } };
+      const m = j.chart?.result?.[0]?.meta;
+      if (!m || m.regularMarketPrice == null || m.previousClose == null) return null;
+      const change = m.regularMarketPrice - m.previousClose;
+      return {
+        symbol: t.symbol, display: t.display, price: m.regularMarketPrice, change,
+        changePct: (change / m.previousClose) * 100,
+        asOf: new Date(m.regularMarketTime * 1000).toISOString(),
+      };
+    } catch { return null; }
+  }
+
+  async function fromStooq(t: typeof TICKER_SYMBOLS[number]): Promise<FXQuote | null> {
+    try {
+      const r = await timedFetch(`https://stooq.com/q/l/?s=${t.stooq}&f=sd2t2ohlcvn&h&e=csv`, 4_000, { headers: { "User-Agent": browserHeaders["User-Agent"] } });
+      if (!r.ok) { console.warn(`[FX-Stooq] ${t.symbol}: HTTP ${r.status}`); return null; }
+      const csv = await r.text();
+      const lines = csv.trim().split("\n");
+      if (lines.length < 2) { console.warn(`[FX-Stooq] ${t.symbol}: empty csv`); return null; }
+      const fields = lines[1].split(",");
+      const open  = parseFloat(fields[3]);
+      const close = parseFloat(fields[6]);
+      const date  = (fields[1] ?? "").trim();
+      const time  = (fields[2] ?? "00:00:00").trim();
+      if (isNaN(close) || isNaN(open) || open === 0) {
+        console.warn(`[FX-Stooq] ${t.symbol}: parse fail (open=${fields[3]}, close=${fields[6]})`);
+        return null;
+      }
+      const change = close - open;
+      return {
+        symbol: t.symbol, display: t.display, price: close, change,
+        changePct: (change / open) * 100,
+        asOf: date && date.match(/^\d{4}-\d{2}-\d{2}$/) ? `${date}T${time}Z` : new Date().toISOString(),
+      };
+    } catch (e) {
+      console.warn(`[FX-Stooq] ${t.symbol}: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  // For each symbol: try Yahoo first, fall back to Stooq if Yahoo unavailable/429.
+  const results = await Promise.all(TICKER_SYMBOLS.map(async (t) => {
+    return (await fromYahoo(t)) ?? (await fromStooq(t));
+  }));
+  const quotes = results.filter((q): q is FXQuote => q !== null);
+
+  if (quotes.length === 0) {
+    const stale = getStale<FXQuote[]>("fx_ticker");
+    if (stale) return stale;
+  }
+  const gbp = quotes.find(q => q.symbol === "GBPUSD");
+  console.log(`[FX] ${quotes.length}/${TICKER_SYMBOLS.length} quotes — GBPUSD ${gbp?.price?.toFixed(4) ?? "?"} (${gbp ? (gbp.changePct >= 0 ? "+" : "") + gbp.changePct.toFixed(2) + "%" : "?"})`);
+  return quotes;
+}
+
+// ============================================================
+//  Premarket / Intraday Movers — strong-stock filter
+//  Yahoo Finance screener (day_gainers / day_losers / most_actives)
+//  + client-side quality filter (mkt cap > $2B, vol > 1M, real move).
+//
+//  Updates every 60 seconds. During pre-market (4–9:30 ET) and post-market
+//  (16:00–20:00 ET), Yahoo's `regularMarketChangePercent` is the prior
+//  session's close — but `preMarketChangePercent` (when present) reflects
+//  the actual extended-hours move.
+// ============================================================
+import type { MarketMover, MoversData } from "./types";
+
+const MIN_MARKET_CAP   = 2_000_000_000;   // $2B — filters penny stocks + microcaps
+const MIN_AVG_VOLUME   = 500_000;         // 500K avg shares — filters illiquid names
+const MIN_ABS_CHANGE   = 2.0;             // ≥2% move to count as a real mover
+
+interface YahooQuote {
+  symbol: string;
+  shortName?: string;
+  longName?: string;
+  regularMarketPrice?: number;
+  regularMarketChange?: number;
+  regularMarketChangePercent?: number;
+  regularMarketVolume?: number;
+  averageDailyVolume3Month?: number;
+  marketCap?: number;
+  sector?: string;
+  fullExchangeName?: string;
+  fiftyTwoWeekChangePercent?: number;
+  preMarketChangePercent?: number;
+  marketState?: "PRE" | "REGULAR" | "POST" | "CLOSED";
+}
+
+export async function fetchPremarketMovers(): Promise<MoversData> {
+  return withSWR("movers", 60_000, _fetchMovers,
+    { persistKey: "movers", persistMaxAgeMs: 6 * 3600_000 });
+}
+
+// Parse a Stockanalysis.com market table HTML page.
+// Column order varies by page:
+//   gainers/losers: [#, Symbol, Name, %Change, Price, Volume, MarketCap]
+//   active        : [#, Symbol, Name, Volume, Price, %Change, MarketCap]
+// We auto-detect by reading the <thead> labels.
+function parseStockanalysisTable(html: string): MarketMover[] {
+  const movers: MarketMover[] = [];
+
+  // Detect column positions from <thead>
+  const header = html.match(/<thead[\s\S]*?<\/thead>/)?.[0] || "";
+  const headerCells = [...header.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)]
+    .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().toLowerCase());
+
+  // Map column index for each known label
+  const colIdx = {
+    symbol: headerCells.findIndex(h => h === "symbol"),
+    name:   headerCells.findIndex(h => h.includes("company")),
+    price:  headerCells.findIndex(h => h.includes("stock price") || h === "price"),
+    change: headerCells.findIndex(h => h.includes("change") || h.includes("%")),
+    volume: headerCells.findIndex(h => h.includes("volume")),
+    cap:    headerCells.findIndex(h => h.includes("market cap") || h.includes("mkt cap")),
+  };
+
+  // Sanity check — bail if essential columns weren't found
+  if (colIdx.symbol < 0 || colIdx.price < 0) return [];
+
+  const rows = [...html.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/g)];
+  for (let i = 1; i < rows.length; i++) {
+    const cells = [...rows[i][0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+      .map(m => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim());
+    if (cells.length < headerCells.length) continue;
+
+    const symbol = cells[colIdx.symbol] || "";
+    const name   = colIdx.name >= 0 ? cells[colIdx.name] : symbol;
+    const priceStr = (cells[colIdx.price] || "").replace(/[,$]/g, "");
+    const pctStr   = colIdx.change >= 0 ? (cells[colIdx.change] || "").replace(/[,+%]/g, "") : "0";
+    const volStr   = colIdx.volume >= 0 ? (cells[colIdx.volume] || "").replace(/,/g, "") : "";
+    const capStr   = colIdx.cap >= 0 ? cells[colIdx.cap] : "";
+
+    const changePct = parseFloat(pctStr);
+    const price = parseFloat(priceStr);
+    const volume = parseFloat(volStr);
+    const capNum = parseStockanalysisCap(capStr);
+
+    if (!symbol.match(/^[A-Z]{1,5}(\.[A-Z])?$/) || isNaN(price) || price <= 0) continue;
+    movers.push({
+      symbol,
+      name,
+      price,
+      change: price * (changePct / 100),
+      changePct: isNaN(changePct) ? 0 : changePct,
+      volume: isNaN(volume) ? 0 : volume,
+      marketCap: capNum,
+    });
+  }
+  return movers;
+}
+
+// "1.56B" → 1_560_000_000, "57.13M" → 57_130_000, "1.20T" → 1_200_000_000_000
+function parseStockanalysisCap(s: string): number | undefined {
+  const m = s.match(/^([\d.]+)\s*([KMBT])?/);
+  if (!m) return undefined;
+  const n = parseFloat(m[1]);
+  if (isNaN(n)) return undefined;
+  const mult = m[2] === "T" ? 1e12 : m[2] === "B" ? 1e9 : m[2] === "M" ? 1e6 : m[2] === "K" ? 1e3 : 1;
+  return n * mult;
+}
+
+async function pullStockanalysis(slug: string): Promise<MarketMover[]> {
+  try {
+    const r = await timedFetch(
+      `https://stockanalysis.com/markets/${slug}/`,
+      6_000,
+      { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" } }
+    );
+    if (!r.ok) return [];
+    const html = await r.text();
+    return parseStockanalysisTable(html);
+  } catch { return []; }
+}
+
+async function pullYahoo(scrId: string): Promise<YahooQuote[]> {
+  try {
+    const r = await timedFetch(
+      `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=${scrId}`,
+      6_000,
+      { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0", "Accept": "application/json" } }
+    );
+    if (!r.ok) return [];
+    const j = await r.json() as { finance?: { result?: Array<{ quotes?: YahooQuote[] }> } };
+    return j?.finance?.result?.[0]?.quotes ?? [];
+  } catch { return []; }
+}
+
+function yahooToMover(q: YahooQuote): MarketMover {
+  return {
+    symbol: q.symbol,
+    name: q.shortName || q.longName || q.symbol,
+    price: q.regularMarketPrice ?? 0,
+    change: q.regularMarketChange ?? 0,
+    changePct: q.regularMarketChangePercent ?? 0,
+    volume: q.regularMarketVolume ?? 0,
+    avgVolume: q.averageDailyVolume3Month,
+    marketCap: q.marketCap,
+    sector: q.sector,
+    exchange: q.fullExchangeName,
+    preMarketChangePct: q.preMarketChangePercent,
+  };
+}
+
+// Compute current US market state from local clock — used when no Yahoo data
+function currentMarketState(): MoversData["marketState"] {
+  const now = new Date();
+  const m = now.getUTCMonth();
+  const isEDT = (m > 2 && m < 10) || (m === 2 && now.getUTCDate() >= 8);
+  const etOffset = isEDT ? -4 : -5;
+  const et = new Date(now.getTime() + etOffset * 3600_000);
+  const day = et.getUTCDay();
+  if (day === 0 || day === 6) return "CLOSED";  // weekend
+  const minutes = et.getUTCHours() * 60 + et.getUTCMinutes();
+  if (minutes < 240) return "CLOSED";              // before 4 AM ET
+  if (minutes < 570) return "PRE";                 // 4:00–9:30 ET
+  if (minutes < 960) return "REGULAR";             // 9:30–16:00 ET
+  if (minutes < 1200) return "POST";               // 16:00–20:00 ET
+  return "CLOSED";
+}
+
+async function _fetchMovers(): Promise<MoversData> {
+  // Source priority:
+  //  1. Stockanalysis.com — reliable HTML scraper, no rate limits
+  //  2. Yahoo screener — fallback (often 429'd from heavy use)
+  // We try Stockanalysis FIRST. If it returns reasonable data, use it.
+  // Yahoo is only consulted if Stockanalysis returned nothing.
+
+  const [saGainers, saLosers, saActive] = await Promise.all([
+    pullStockanalysis("gainers"),
+    pullStockanalysis("losers"),
+    pullStockanalysis("active"),
+  ]);
+
+  let gainers: MarketMover[] = [];
+  let losers:  MarketMover[] = [];
+  let active:  MarketMover[] = [];
+  let source = "stockanalysis";
+
+  // Stockanalysis lacks `avgVolume`/`sector` — filter only on cap + % move
+  const isStrongSA = (m: MarketMover) =>
+    (m.marketCap ?? 0) >= MIN_MARKET_CAP && Math.abs(m.changePct) >= MIN_ABS_CHANGE;
+
+  if (saGainers.length > 0 || saActive.length > 0) {
+    gainers = saGainers.filter(isStrongSA).slice(0, 10);
+    losers  = saLosers .filter(isStrongSA).slice(0, 10);
+    // Active filter: just market cap (don't reject low-pct names like SPY)
+    active  = saActive .filter(m => (m.marketCap ?? 0) >= MIN_MARKET_CAP).slice(0, 10);
+  } else {
+    // Fallback to Yahoo
+    source = "yahoo";
+    const [yhGainers, yhLosers, yhActive] = await Promise.all([
+      pullYahoo("day_gainers"),
+      pullYahoo("day_losers"),
+      pullYahoo("most_actives"),
+    ]);
+    const isStrongYH = (q: YahooQuote) => {
+      const cap = q.marketCap ?? 0;
+      const vol = q.averageDailyVolume3Month ?? q.regularMarketVolume ?? 0;
+      const pct = Math.abs(q.regularMarketChangePercent ?? 0);
+      return cap >= MIN_MARKET_CAP && vol >= MIN_AVG_VOLUME && pct >= MIN_ABS_CHANGE;
+    };
+    gainers = yhGainers.filter(isStrongYH).slice(0, 10).map(yahooToMover);
+    losers  = yhLosers .filter(isStrongYH).slice(0, 10).map(yahooToMover);
+    active  = yhActive .filter(q => (q.marketCap ?? 0) >= MIN_MARKET_CAP).slice(0, 10).map(yahooToMover);
+  }
+
+  const marketState = currentMarketState();
+  console.log(`[MOVERS] (${source}) ${marketState} | gainers:${gainers.length} losers:${losers.length} active:${active.length}`);
+  return {
+    asOf: new Date().toISOString(),
+    marketState,
+    gainers,
+    losers,
+    active,
+  };
+}
+
+// ============================================================
 //  News Feed  ✅ LIVE via multiple RSS feeds
 //  - Federal Reserve press releases (federalreserve.gov) ✅
 //  - Bank of England (bankofengland.co.uk) — may 403

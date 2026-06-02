@@ -18,6 +18,8 @@ import {
   fetchHormuzData,
   fetchOilInventory,
   fetchNewsFeed,
+  fetchFXTicker,
+  fetchPremarketMovers,
   bypassFFCache,
   bypassEIACache,
 } from "@/lib/data-sources";
@@ -44,6 +46,10 @@ const SOURCES = [
   { name: "oilInventory", fetcher: fetchOilInventory,     intervalMs: 1_800_000 },
   // News: 90s SWR TTL — 3 feeds in parallel, SWR means push returns in <1ms
   { name: "news",         fetcher: fetchNewsFeed,         intervalMs: 90_000  },
+  // FX ticker: 60s push — Yahoo Finance live FX + futures (GBPUSD, EURUSD, etc.)
+  { name: "fx",           fetcher: fetchFXTicker,         intervalMs: 60_000  },
+  // Premarket movers: 60s push — Yahoo screeners (gainers/losers/active) with quality filter
+  { name: "movers",       fetcher: fetchPremarketMovers,  intervalMs: 60_000  },
 ] as const;
 
 export async function GET() {

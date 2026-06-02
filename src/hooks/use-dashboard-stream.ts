@@ -8,6 +8,8 @@ import type {
   OilInventory,
   NewsItem,
   Alert,
+  FXQuote,
+  MoversData,
 } from "@/lib/types";
 import type { BLSDataPoint } from "@/lib/gov-calendar";
 
@@ -17,6 +19,8 @@ interface DashboardState {
   hormuz: HormuzUpdate | null;
   oilInventory: OilInventory | null;
   news: NewsItem[];
+  fx: FXQuote[];                    // live FX/crude ticker (header strip)
+  movers: MoversData | null;        // premarket/intraday movers (gainers/losers/active)
   alerts: Alert[];
   connected: boolean;
   lastUpdate: string | null;
@@ -39,6 +43,8 @@ const INITIAL_STATE: DashboardState = {
   hormuz: null,
   oilInventory: null,
   news: [],
+  fx: [],
+  movers: null,
   alerts: [],
   connected: false,
   lastUpdate: null,
@@ -213,6 +219,12 @@ export function useDashboardStream() {
     });
     es.addEventListener("news", (e) => {
       mergeData("news", JSON.parse(e.data));
+    });
+    es.addEventListener("fx", (e) => {
+      mergeData("fx", JSON.parse(e.data));
+    });
+    es.addEventListener("movers", (e) => {
+      mergeData("movers", JSON.parse(e.data));
     });
 
     // BLS sniper events — fired the instant new US government data appears

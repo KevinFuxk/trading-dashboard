@@ -8,7 +8,10 @@ import {
 import { EconomicCalendar } from "@/components/dashboard/EconomicCalendar";
 import { OilIntelligence } from "@/components/dashboard/OilIntelligence";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
+import { MoversPanel } from "@/components/dashboard/MoversPanel";
 import { StatusBar } from "@/components/dashboard/StatusBar";
+import { TickerStrip } from "@/components/dashboard/TickerStrip";
+import { NextReleaseCountdown } from "@/components/dashboard/NextReleaseCountdown";
 import { useDashboardStream } from "@/hooks/use-dashboard-stream";
 import { useEffect, useState } from "react";
 
@@ -19,6 +22,8 @@ export default function Dashboard() {
     hormuz,
     oilInventory,
     news,
+    fx,
+    movers,
     alerts,
     connected,
     lastUpdate,
@@ -42,27 +47,29 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* Top bar */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-border bg-card shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-primary animate-pulse-live" />
-          <h1 className="text-sm font-bold tracking-wider uppercase font-mono">
-            Trading Intelligence
-          </h1>
-          <span className="text-[10px] text-muted-foreground font-mono px-2 py-0.5 rounded bg-muted">
-            GBPUSD / OIL
-          </span>
+      {/* Top bar — Row 1: brand + counters | Row 2: live ticker + next-release countdown */}
+      <header className="flex flex-col border-b border-border bg-card shrink-0">
+        {/* Row 1: brand + summary counts */}
+        <div className="flex items-center justify-between px-4 py-1.5">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-primary animate-pulse-live" />
+            <h1 className="text-sm font-bold tracking-wider uppercase font-mono">
+              Trading Intelligence
+            </h1>
+            <span className="text-[10px] text-muted-foreground font-mono px-2 py-0.5 rounded bg-muted">
+              GBPUSD / OIL
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
+            <span className="px-2 py-0.5 rounded bg-muted">{calendar.length} events</span>
+            <span className="px-2 py-0.5 rounded bg-muted">{news.length} headlines</span>
+            <span className="px-2 py-0.5 rounded bg-muted">{alerts.filter((a) => !a.dismissed).length} alerts</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
-          <span className="px-2 py-0.5 rounded bg-muted">
-            {calendar.length} events
-          </span>
-          <span className="px-2 py-0.5 rounded bg-muted">
-            {news.length} headlines
-          </span>
-          <span className="px-2 py-0.5 rounded bg-muted">
-            {alerts.filter((a) => !a.dismissed).length} alerts
-          </span>
+        {/* Row 2: live FX/crude ticker on the left, next-release countdown on the right */}
+        <div className="flex items-center justify-between gap-4 px-4 py-1.5 border-t border-border/40 bg-muted/20 overflow-x-auto">
+          <TickerStrip quotes={fx} />
+          <NextReleaseCountdown events={calendar} />
         </div>
       </header>
 
@@ -103,9 +110,17 @@ export default function Dashboard() {
 
           <ResizableHandle withHandle />
 
-          {/* Bottom row — News Feed full width (alerts removed per user request) */}
+          {/* Bottom row — News Feed (left) + Premarket Movers (right) */}
           <ResizablePanel defaultSize={45} minSize={20}>
-            <NewsFeed news={news} alerts={alerts} />
+            <ResizablePanelGroup direction="horizontal">
+              <ResizablePanel defaultSize={60} minSize={30}>
+                <NewsFeed news={news} alerts={alerts} />
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={40} minSize={25}>
+                <MoversPanel data={movers} />
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
