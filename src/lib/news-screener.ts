@@ -191,11 +191,32 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bCitigroup? (?:upgrades?|downgrades?|raises?|cuts?)/i,
-    /\b(?:Bank of America|BofA|BAML) (?:upgrades?|downgrades?|raises?|cuts?)/i,
+    // Bulge bracket
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\bCitigroup? (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Bank of America|BofA|BAML) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\b(?:Wells Fargo Securities?|Wells Fargo) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:RBC Capital|RBC) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?|lowers?|boosts?)/i,
+    /\b(?:Evercore ISI|Evercore) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:TD Cowen|Cowen) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:KeyBanc Capital|KeyBanc) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Needham(?: & Company)?|Needham) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:BMO Capital(?:\s+Markets)?|BMO) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bRaymond James (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Truist(?:\s+(?:Securities?|Financial))?|Truist) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Mizuho(?:\s+Securities?)?|Mizuho) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bWolfe Research (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Bernstein(?: Research)?|Bernstein) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\b(?:Canaccord Genuity|Canaccord) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
+    /\bStifel (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|maintains?)/i,
   ],
 };
 
@@ -246,10 +267,12 @@ const EXCLUSIONS: RegExp[] = [
 // ════════════════════════════════════════════════════════════════
 
 const TRUSTED_SOURCES = new Set<string>([
-  // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
-  "Barron's", "Financial Times", "FT", "MarketWatch",
+  // Tier A — real journalism (all label variants that appear in Finviz feeds)
+  "Reuters", "Bloomberg", "Wall Street Journal", "The Wall Street Journal", "WSJ", "CNBC",
+  "Barron's", "Financial Times", "FT", "FT.com", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones wire is distinct from WSJ in Finviz's source labels
+  "Dow Jones Newswires", "Dow Jones",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -260,18 +283,26 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat or miss by ≥10% — both directions are actionable
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beat = title.match(/beat(?:s|ing|ed)?\s+(?:by\s+)?(\d+)%/i);
+    if (beat && parseInt(beat[1]) >= 10) return true;
+    const miss = title.match(/miss(?:es|ing|ed)?\s+(?:by\s+)?(\d+)%/i);
+    if (miss && parseInt(miss[1]) >= 10) return true;
   }
-  // FDA approval (always high-impact for biotech)
+  // FDA approval always high-impact for biotech
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
+  // FDA rejection / complete response letter — equally high-impact, negative
+  if (categories.includes("fda") && /complete response letter|\bFDA rejects?\b|not approv/i.test(title)) return true;
   // M&A with explicit $1B+
   if (categories.includes("ma")) {
     const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
     if (m && parseFloat(m[1]) >= 1) return true;
   }
+  // Chapter 11 / bankruptcy — always a massive move
+  if (categories.includes("regulatory") && /\bChapter 11\b|file[sd]? for bankruptcy/i.test(title)) return true;
+  // Activist investor campaign — reliably moves stocks 5-15%
+  if (categories.includes("csuite") && /\bactivist\b/i.test(title)) return true;
   // CEO out + activist combo (rare but huge)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
