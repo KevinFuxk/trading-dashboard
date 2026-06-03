@@ -424,8 +424,12 @@ const FRED_EXTRA_SERIES: FREDExtraConfig[] = [
   { fredId: "BOPGSTB",      name: "Goods Trade Balance",              unit: "B",  type: "level_billions", impact: "low"    },
   // S&P/Cotality Case-Shiller 20-City Composite Home Price Index — y/y %
   { fredId: "SPCS20RSA",    name: "S&P/CS Composite-20 HPI y/y",      unit: "%",  type: "yoy_pct",        impact: "low"    },
-  // Univ of Michigan Consumer Sentiment (substitute for CB Consumer Confidence — different but correlated)
-  { fredId: "UMCSENT",      name: "CB Consumer Confidence",           unit: "",   type: "level_index",    impact: "medium" },
+  // Univ of Michigan Consumer Sentiment — note: NOT the Conference Board CCI. Different survey,
+  // different scale (UoM: ~60-100, CB: ~80-150). Match only UoM "consumer sentiment" FF events.
+  { fredId: "UMCSENT",      name: "UoM Consumer Sentiment",           unit: "",   type: "level_index",    impact: "medium" },
+  // ISM Manufacturing PMI (NAPM) — highest-impact monthly release after jobs/CPI.
+  // Releases first business day of each month at 10:00 ET. 50 = expansion threshold.
+  { fredId: "NAPM",         name: "ISM Manufacturing PMI",            unit: "",   type: "level_index",    impact: "high"   },
   // BOE rate proxy via SONIA (Sterling Overnight Interbank Average Rate) — daily
   // SONIA tracks Bank Rate -0.05% so we round to nearest 0.25% (BOE moves in 25bp steps)
   { fredId: "IUDSOIA",      name: "Official Bank Rate",               unit: "%",  type: "boe_rate_proxy", impact: "high"   },
@@ -864,8 +868,11 @@ export function mergeBLSActualsIntoCalendar(
       if ((nameLower === "goods trade balance" || nameLower.includes("trade balance")) && b === "goods trade balance") return true;
       // S&P/Cotality Case-Shiller HPI y/y (also matches generic "HPI m/m" with caveat)
       if ((nameLower.includes("composite-20") || nameLower.includes("case-shiller") || nameLower === "hpi y/y") && b.includes("composite-20")) return true;
-      // CB Consumer Confidence (we substitute UMCSENT — closely correlated)
-      if ((nameLower.includes("consumer confidence") || nameLower.includes("consumer sentiment")) && b.includes("consumer confidence")) return true;
+      // UoM Consumer Sentiment — only match "sentiment" FF events, NOT "confidence" (Conference Board
+      // CCI is a different survey on a different scale; FRED doesn't carry it, so don't inject wrong data)
+      if (nameLower.includes("consumer sentiment") && b === "uom consumer sentiment") return true;
+      // ISM Manufacturing PMI (NAPM) — first business day of month, 10:00 ET
+      if ((nameLower === "ism manufacturing pmi" || nameLower.includes("ism manufacturing")) && b === "ism manufacturing pmi") return true;
       // BOE Official Bank Rate (proxy via SONIA rounded to nearest 0.25%)
       // Exclude "Votes" event which shows MPC vote split (e.g., "8-1"), not the rate
       if ((nameLower === "official bank rate" || (nameLower.includes("bank rate") && !nameLower.includes("vote")))
@@ -894,7 +901,7 @@ export function mergeBLSActualsIntoCalendar(
 
     const censusCsvIds  = ["RSAFS", "RSXFS", "DGORDER", "HSN1F"];
     const fredKeyIds    = ["ADPMNUSNERSA", "BUSINV", "WHLSLRIMSA", "PCEPILFE", "PHSI", "DFEDTARU", "A191RL1Q225SBEA", "A191RI1Q225SBEA", "ECIALLCIV",
-                           "ICSA", "PI", "PCE", "PERMIT", "HOUST", "BOPGSTB", "SPCS20RSA", "UMCSENT", "IUDSOIA", "AMTMNO"];
+                           "ICSA", "PI", "PCE", "PERMIT", "HOUST", "BOPGSTB", "SPCS20RSA", "UMCSENT", "IUDSOIA", "AMTMNO", "NAPM"];
     const sourceLabel   = censusCsvIds.includes(match.seriesId) ? "Census (FRED)"
                         : fredKeyIds.includes(match.seriesId)   ? "FRED (keyed)"
                         : "BLS (direct)";
