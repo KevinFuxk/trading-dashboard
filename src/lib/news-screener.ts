@@ -184,7 +184,7 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   ],
   contracts: [
     /\b(?:wins?|awarded|secures?) (?:a )?(?:contract|deal) (?:worth|valued|with)/i,
-    /\b\$\d+(?:\.\d+)?\s*(?:B|billion) (?:contract|deal|order|deal)/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:B|billion) (?:contract|deal|order)/i,
     /\bPentagon (?:contract|award|deal)/i,
     /\bdefense contract\b/i,
     /\bgovernment contract\b/i,
@@ -196,6 +196,13 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bCitigroup? (?:upgrades?|downgrades?|raises?|cuts?)/i,
     /\b(?:Bank of America|BofA|BAML) (?:upgrades?|downgrades?|raises?|cuts?)/i,
+    /\b(?:Wells Fargo) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Deutsche Bank|Deutsche) (?:upgrades?|downgrades?|raises?|cuts?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital Markets? )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bernstein|AllianceBernstein) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -267,12 +274,22 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
-  // M&A with explicit $1B+
+  // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
   if (categories.includes("ma")) {
     const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
     if (m && parseFloat(m[1]) >= 1) return true;
+    if (/\b(?:hostile (?:bid|takeover)|tender offer)\b/i.test(title)) return true;
   }
-  // CEO out + activist combo (rare but huge)
+  // Bankruptcy — extreme market mover for equity holders
+  if (categories.includes("regulatory") &&
+      /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // CEO departure (solo) — always material for S&P 500 names
+  if (categories.includes("csuite") &&
+      /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
+  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  if (categories.includes("guidance") &&
+      /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
 }
@@ -380,16 +397,6 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   lastFetchAt = Date.now();
   lastResults = deduped;
   return deduped;
-}
-
-// Used by SSE stream to detect new headlines since last push
-let lastPushedIds = new Set<string>();
-
-export function diffSinceLastPush(headlines: ScreenedHeadline[]): ScreenedHeadline[] {
-  const currentIds = new Set(headlines.map(h => h.id));
-  const newOnes = headlines.filter(h => !lastPushedIds.has(h.id));
-  lastPushedIds = currentIds;
-  return newOnes;
 }
 
 export function getLastResults(): ScreenedHeadline[] {
