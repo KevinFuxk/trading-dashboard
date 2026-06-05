@@ -9,7 +9,7 @@
  *   • Emit "heartbeat" every 30s so the connection doesn't idle out
  */
 
-import { fetchScreenedHeadlines, diffSinceLastPush, type ScreenedHeadline } from "@/lib/news-screener";
+import { fetchScreenedHeadlines, type ScreenedHeadline } from "@/lib/news-screener";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,14 @@ export async function GET() {
     async start(controller) {
       let closed = false;
       const timers: ReturnType<typeof setInterval>[] = [];
+
+      // Per-connection seen set — avoids shared module state poisoning other tabs
+      const seenIds = new Set<string>();
+      function diff(headlines: ScreenedHeadline[]): ScreenedHeadline[] {
+        const fresh = headlines.filter(h => !seenIds.has(h.id));
+        for (const h of headlines) seenIds.add(h.id);
+        return fresh;
+      }
 
       function send(event: string, data: unknown) {
         if (closed) return;
@@ -39,7 +47,7 @@ export async function GET() {
       try {
         const initial = await fetchScreenedHeadlines();
         send("screener", initial);
-        diffSinceLastPush(initial); // seed the "last seen" set
+        diff(initial); // seed this connection's seen set
       } catch (err) {
         console.warn("[SSE] Initial screener fetch failed:", err);
       }
@@ -48,7 +56,7 @@ export async function GET() {
       timers.push(setInterval(async () => {
         try {
           const fresh = await fetchScreenedHeadlines();
-          const newOnes = diffSinceLastPush(fresh);
+          const newOnes = diff(fresh);
           if (newOnes.length > 0) {
             // Always push the full list (UI replaces, easier)
             send("screener", fresh);
