@@ -192,17 +192,7 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   ],
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bCitigroup? (?:upgrades?|downgrades?|raises?|cuts?)/i,
-    /\b(?:Bank of America|BofA|BAML) (?:upgrades?|downgrades?|raises?|cuts?)/i,
-    /\b(?:Wells Fargo) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\b(?:Deutsche Bank|Deutsche) (?:upgrades?|downgrades?|raises?|cuts?)/i,
-    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bRBC (?:Capital Markets? )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\b(?:Bernstein|AllianceBernstein) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
