@@ -191,8 +191,13 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Active: "[Bank] upgrades / downgrades / raises / cuts / lowers / initiates"
+    // Covers bulge-bracket + major boutiques — previously only Goldman + JPM
+    /\b(?:Goldman Sachs?|Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Merrill Lynch|Citigroup|Citi|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC Capital|RBC|Piper Sandler|Needham|Stifel|KeyBanc|Raymond James|Oppenheimer|Guggenheim|Truist|HSBC|Evercore|Cowen|Mizuho|BMO Capital|BMO) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    // Passive: "upgraded / downgraded by [Bank]"
+    /\b(?:upgrades?|downgrades?)\s+by\s+(?:Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC|Piper Sandler|Needham|Stifel|Raymond James|Truist|HSBC|Evercore|Cowen|Mizuho|BMO)\b/i,
+    // Price-target change from any major bank
+    /\b(?:Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC|Piper Sandler|Needham|Stifel|Raymond James|Truist|HSBC|Evercore|Cowen|Mizuho|BMO)\b.{0,40}\bprice target\b/i,
   ],
 };
 
@@ -239,28 +244,45 @@ const EXCLUSIONS: RegExp[] = [
 
 // ════════════════════════════════════════════════════════════════
 //  TRUSTED PUBLISHERS
-//  Only headlines from these sources pass.
+//  Regex prefix matching handles source name variants that Finviz
+//  uses (e.g., "Reuters.com", "Bloomberg News", "Dow Jones Newswire",
+//  "The Wall Street Journal") which exact Set matching would reject.
 // ════════════════════════════════════════════════════════════════
 
-const TRUSTED_SOURCES = new Set<string>([
-  // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
-  "Barron's", "Financial Times", "FT", "MarketWatch",
-  "AP", "Associated Press", "AP News",
-  // Tier B — official company PR wires (high-trust for company-issued news)
-  "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
-  "PRNewswire", "BusinessWire",
-]);
+const TRUSTED_SOURCE_PATTERNS: RegExp[] = [
+  /^Reuters/i,
+  /^Bloomberg/i,
+  /^(?:The )?Wall Street Journal/i,
+  /^WSJ\b/i,
+  /^CNBC/i,
+  /^Barron/i,
+  /^Financial Times/i,
+  /^\bFT\b/,
+  /^MarketWatch/i,
+  /^AP\b/i,
+  /^Associated Press/i,
+  /^Dow Jones/i,
+  /^PR Newswire/i,
+  /^PRNewswire/i,
+  /^Business Wire/i,
+  /^BusinessWire/i,
+  /^GlobeNewswire/i,
+  /^Globe Newswire/i,
+];
+
+function isTrustedSource(source: string): boolean {
+  return TRUSTED_SOURCE_PATTERNS.some(p => p.test(source));
+}
 
 // ════════════════════════════════════════════════════════════════
 //  HIGH-IMPACT DETECTOR — triggers the sound chime
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat by ≥5% (institutional standard; 10% was too high for mega-caps)
   if (categories.includes("earnings")) {
     const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    if (m && parseInt(m[1]) >= 5) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +303,9 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Top-bank initiation or upgrade at Buy / Outperform — immediately actionable
+  if (categories.includes("analyst") &&
+      /\b(?:Goldman Sachs?|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA)\b.{0,60}\b(?:initiates?|upgrades?)\b.{0,40}\b(?:Buy|Strong Buy|Outperform|Overweight|Top Pick)\b/i.test(title)) return true;
   return false;
 }
 
@@ -340,9 +365,9 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
     // FILTER 1: Universe (S&P 500 + Nasdaq 100)
     if (!UNIVERSE.has(cleanTicker)) { universeRejects++; continue; }
 
-    // FILTER 2: Trusted source
+    // FILTER 2: Trusted source (regex prefix matching — handles name variants)
     const cleanSource = source.trim();
-    if (!TRUSTED_SOURCES.has(cleanSource)) { sourceRejects++; continue; }
+    if (!isTrustedSource(cleanSource)) { sourceRejects++; continue; }
 
     // FILTER 3: TIER 1 trigger phrase
     const cleanTitle = title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
