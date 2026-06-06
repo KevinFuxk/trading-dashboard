@@ -181,6 +181,11 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bsuspends? (?:its )?dividend/i,
     /\binitiates? (?:a )?dividend/i,
     /\bspecial dividend\b/i,
+    // Equity offerings — dilutive corporate actions (secondary / follow-on)
+    /\b(?:secondary|follow-on) offering\b/i,
+    /\b(?:prices?|announces?|launches?|completes?)\b.{0,35}\b(?:common[- ]stock|equity)\s+offering\b/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:B|M|billion|million)\b.{0,25}\boffering\b/i,
+    /\boffering of\s+[\d.,]+\s*(?:million\s+)?(?:shares?|common\s+shares?)\b/i,
   ],
   contracts: [
     /\b(?:wins?|awarded|secures?) (?:a )?(?:contract|deal) (?:worth|valued|with)/i,
@@ -244,9 +249,11 @@ const EXCLUSIONS: RegExp[] = [
 
 const TRUSTED_SOURCES = new Set<string>([
   // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
+  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "The Wall Street Journal", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — high-volume corporate wire, same source as WSJ breaking news
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,10 +264,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat or miss by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +290,9 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Equity offering — dilutive corporate action, always causes immediate price action
+  if (categories.includes("corporate") &&
+      /\b(?:secondary|follow-on) offering\b|\boffering of\s+[\d.,]+\s*(?:million\s+)?shares?\b/i.test(title)) return true;
   return false;
 }
 
