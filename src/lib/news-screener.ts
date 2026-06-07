@@ -5,10 +5,11 @@
  *   1. Fetch Finviz Elite CSV (~70ms)
  *   2. Filter: must be in S&P 500 + Nasdaq 100 universe
  *   3. Filter: must come from trusted publisher
- *   4. Filter: must match a TIER 1 trigger phrase
- *   5. Filter: must NOT match any exclusion phrase
- *   6. Categorize + detect high-impact (chime trigger)
- *   7. Return; SSE pushes only the deltas
+ *   4. Filter: must be less than 8 hours old
+ *   5. Filter: must match a TIER 1 trigger phrase
+ *   6. Filter: must NOT match any exclusion phrase
+ *   7. Categorize + detect high-impact (chime trigger)
+ *   8. Return; SSE pushes only the deltas
  *
  * Total latency Finviz publish → browser: ~85-100 ms
  */
@@ -191,8 +192,13 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Active: "[Bank] upgrades / downgrades / raises / cuts / initiates"
+    // Covers bulge-bracket + major boutiques (was Goldman + JPM only)
+    /\b(?:Goldman Sachs?|Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Merrill Lynch|Citigroup|Citi|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC Capital|RBC|Piper Sandler|Needham|Stifel|KeyBanc|Raymond James|Oppenheimer|Guggenheim|Truist|HSBC|Evercore|Cowen|Mizuho|BMO Capital|BMO) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    // Passive: "upgraded / downgraded by [Bank]"
+    /\b(?:upgrades?|downgrades?)\s+by\s+(?:Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC|Piper Sandler|Needham|Stifel|Raymond James|Truist|HSBC|Evercore|Cowen|Mizuho|BMO)\b/i,
+    // Price-target change from any major bank
+    /\b(?:Goldman|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|UBS|Barclays|Wells Fargo|Deutsche Bank|Jefferies|RBC|Piper Sandler|Needham|Stifel|Raymond James|Truist|HSBC|Evercore|Cowen|Mizuho|BMO)\b.{0,40}\bprice target\b/i,
   ],
 };
 
@@ -231,30 +237,63 @@ const EXCLUSIONS: RegExp[] = [
   /\bevening brief\b/i,
   /\bweekly recap\b/i,
   /\b(?:market|stock market) wrap\b/i,
-  /\btop (?:gainers?|losers?)/i,
+  /\btop (?:gainers?|losers?)\b/i,
   /\bbiggest movers\b/i,
   /\b\d+ reasons? to\b/i,
   /\b(?:will|could) \w+ stock\b/i,
+  // The Fly's non-actionable briefing formats
+  /\bpre[- ]?market briefing\b/i,
+  /\bafter[- ]?hours briefing\b/i,
+  /\bstreet wrap\b/i,
+  /\boption implied move\b/i,
 ];
 
 // ════════════════════════════════════════════════════════════════
 //  TRUSTED PUBLISHERS
-//  Only headlines from these sources pass.
+//  Regex prefix matching handles Finviz source name variants
+//  (e.g., "Reuters.com", "Bloomberg News", "Dow Jones Newswires",
+//  "AP News") that exact Set membership would silently reject.
 // ════════════════════════════════════════════════════════════════
 
-const TRUSTED_SOURCES = new Set<string>([
-  // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
-  "Barron's", "Financial Times", "FT", "MarketWatch",
-  "AP", "Associated Press", "AP News",
-  // Tier B — official company PR wires (high-trust for company-issued news)
-  "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
-  "PRNewswire", "BusinessWire",
-]);
+const TRUSTED_SOURCE_PATTERNS: RegExp[] = [
+  // Tier A — institutional journalism
+  /^Reuters/i,
+  /^Bloomberg/i,
+  /^(?:The )?Wall Street Journal/i,
+  /^WSJ\b/i,
+  /^CNBC/i,
+  /^Barron/i,
+  /^Financial Times/i,
+  /^\bFT\b/,
+  /^MarketWatch/i,
+  /^AP\b/i,
+  /^Associated Press/i,
+  /^Dow Jones/i,
+  // Tier B — company PR wires
+  /^PR Newswire/i,
+  /^PRNewswire/i,
+  /^Business Wire/i,
+  /^BusinessWire/i,
+  /^GlobeNewswire/i,
+  /^Globe Newswire/i,
+  // The Fly on the Wall — primary source for analyst upgrade/downgrade
+  // coverage on Finviz. Headlines still need to pass trigger + exclusion
+  // filters, so their non-actionable briefings are caught by EXCLUSIONS.
+  /^(?:The )?Fly(?: on the Wall)?/i,
+];
+
+function isTrustedSource(source: string): boolean {
+  return TRUSTED_SOURCE_PATTERNS.some(p => p.test(source));
+}
 
 // ════════════════════════════════════════════════════════════════
 //  HIGH-IMPACT DETECTOR — triggers the sound chime
 // ════════════════════════════════════════════════════════════════
+
+// Top-5 bulge bracket for analyst high-impact (largest AUM → biggest
+// institutional flow when they move a rating on an S&P 500 name)
+const TOP_BANKS_RE =
+  /\b(?:Goldman Sachs?|J\.?P\.?\s*Morgan|JPMorgan|Morgan Stanley|Bank of America|BofA|Citigroup|Citi)\b/i;
 
 function detectHighImpact(title: string, categories: string[]): boolean {
   // Earnings beat by ≥10%
@@ -264,25 +303,39 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
-  // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
+  // M&A: $1B+ deal OR hostile bid/tender offer
   if (categories.includes("ma")) {
     const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
     if (m && parseFloat(m[1]) >= 1) return true;
     if (/\b(?:hostile (?:bid|takeover)|tender offer)\b/i.test(title)) return true;
   }
-  // Bankruptcy — extreme market mover for equity holders
+  // Bankruptcy
   if (categories.includes("regulatory") &&
       /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
-  // CEO departure (solo) — always material for S&P 500 names
+  // CEO departure
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
-  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  // Guidance withdrawal or cut
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
-  // CEO out + activist combo (rare but seismic)
+  // CEO out + activist combo
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Top-5 bank initiation or upgrade to Buy/Outperform/Overweight —
+  // reliably drives institutional momentum within minutes of publication
+  if (categories.includes("analyst") && TOP_BANKS_RE.test(title) &&
+      /\b(?:initiates?|upgrades?)\b/i.test(title) &&
+      /\b(?:Buy|Strong Buy|Outperform|Overweight|Top Pick)\b/i.test(title)) return true;
   return false;
 }
+
+// ════════════════════════════════════════════════════════════════
+//  STALENESS GUARD
+//  Finviz returns up to 24h of headlines. On server restart or first
+//  connection of the day, old closed catalysts would flood the screen.
+//  Drop anything older than 8 hours at parse time.
+// ════════════════════════════════════════════════════════════════
+
+const MAX_AGE_MS = 8 * 3600_000;
 
 // ════════════════════════════════════════════════════════════════
 //  MAIN: fetch + screen
@@ -325,7 +378,9 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   // Parse CSV: "Title","Source",Date,"Url",Category,"Ticker"
   const lines = csv.split(/\r?\n/).slice(1);
   const results: ScreenedHeadline[] = [];
-  let parseFails = 0, universeRejects = 0, sourceRejects = 0, triggerRejects = 0, exclusionRejects = 0;
+  let parseFails = 0, universeRejects = 0, sourceRejects = 0,
+      staleRejects = 0, triggerRejects = 0, exclusionRejects = 0;
+  const now = Date.now();
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -340,21 +395,22 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
     // FILTER 1: Universe (S&P 500 + Nasdaq 100)
     if (!UNIVERSE.has(cleanTicker)) { universeRejects++; continue; }
 
-    // FILTER 2: Trusted source
+    // FILTER 2: Trusted source (regex prefix — handles Finviz source name variants)
     const cleanSource = source.trim();
-    if (!TRUSTED_SOURCES.has(cleanSource)) { sourceRejects++; continue; }
+    if (!isTrustedSource(cleanSource)) { sourceRejects++; continue; }
 
-    // FILTER 3: TIER 1 trigger phrase
+    // FILTER 3: Staleness — drop headlines older than 8 hours
+    const ts = new Date(dateStr.trim().replace(" ", "T") + "Z");
+    if (isNaN(ts.getTime())) continue;
+    if (now - ts.getTime() > MAX_AGE_MS) { staleRejects++; continue; }
+
+    // FILTER 4: TIER 1 trigger phrase
     const cleanTitle = title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
     const categories = categorize(cleanTitle);
     if (categories.length === 0) { triggerRejects++; continue; }
 
-    // FILTER 4: Exclusions
+    // FILTER 5: Exclusions
     if (EXCLUSIONS.some(p => p.test(cleanTitle))) { exclusionRejects++; continue; }
-
-    // Parse timestamp
-    const ts = new Date(dateStr.trim().replace(" ", "T") + "Z");
-    if (isNaN(ts.getTime())) continue;
 
     const isHighImpact = detectHighImpact(cleanTitle, categories);
 
@@ -382,7 +438,7 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const latency = Date.now() - t0;
-  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
+  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} stale=${staleRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
 
   lastFetchAt = Date.now();
   lastResults = deduped;
