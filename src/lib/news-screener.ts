@@ -191,8 +191,34 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Unambiguous analyst verbs only — avoids false positives on bank-ticker
+    // corporate headlines (e.g. "Goldman raises dividend" for ticker GS).
+    /\b(?:Goldman Sachs|Goldman)\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bMorgan Stanley\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bJ\.?P\.?\s*Morgan\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\b(?:Bank of America|BofA)\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bCiti(?:group)?\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bBarclays\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bWells Fargo\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bUBS\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bJefferies\s+(?:upgrades?|downgrades?|initiates?)\b/i,
+    /\bRBC\s+(?:Capital\s+)?(?:upgrades?|downgrades?|initiates?)\b/i,
+    // Price-target moves — bank-agnostic, inherently unambiguous
+    /\braises?\s+(?:its\s+)?price target\b/i,
+    /\bcuts?\s+(?:its\s+)?price target\b/i,
+    /\blowers?\s+(?:its\s+)?price target\b/i,
+    /\bboosts?\s+(?:its\s+)?price target\b/i,
+    /\bprice target (?:raised|cut|lowered|boosted|lifted|increased)\b/i,
+  ],
+  restructuring: [
+    /\blays?[- ]off\b/i,
+    /\blayoffs?\b/i,
+    /\bworkforce (?:reduction|cut)\b/i,
+    /\bheadcount reduction\b/i,
+    /\brestructuring (?:plan|charge|charges?|program|costs?)\b/i,
+    /\bcost[- ]cutting (?:plan|measures?|initiative)\b/i,
+    /\b(?:cut|eliminat(?:es?|ing|ed)) \d[\d,]*\s*(?:jobs?|positions?|roles?)\b/i,
+    /\b(?:cut|eliminat(?:es?|ing|ed)) \d+%\s*(?:of (?:its|the) )?(?:workforce|headcount|staff)\b/i,
   ],
 };
 
@@ -281,6 +307,9 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Restructuring with explicit % workforce cut — direct EPS/margin signal
+  if (categories.includes("restructuring") &&
+      /\b\d+(?:\.\d+)?%\s*(?:of (?:its|the) )?(?:workforce|headcount|jobs?|staff|employees?)\b/i.test(title)) return true;
   return false;
 }
 
