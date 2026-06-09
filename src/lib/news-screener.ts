@@ -142,6 +142,12 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bdivest(?:iture|s|ing)\b/i,
     /\btender offer\b/i,
     /\bhostile (?:bid|takeover)/i,
+    // Pre-announcement signals — strategic reviews typically precede deals by days/weeks
+    /\bexplor(?:es?|ing) (?:strategic )?(?:alternatives|options|(?:a )?sale)\b/i,
+    /\bstrategic (?:review|alternatives)\b/i,
+    /\bin talks? to (?:sell|merge|be acquired)\b/i,
+    /\breceives? (?:acquisition|buyout|takeover) (?:bid|approach|offer)\b/i,
+    /\b(?:considering|evaluating) (?:a )?(?:sale|merger|acquisition)\b/i,
   ],
   fda: [
     /\bFDA approv(?:al|es|ed)\b/,
@@ -175,7 +181,7 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   corporate: [
     /\bstock split\b/i,
     /\b(?:share|stock) (?:buyback|repurchase) (?:program|authoriz|of)/i,
-    /\b\$\d+(?:\.\d+)?\s*(?:B|billion) (?:buyback|repurchase)/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:M|million|B|billion) (?:buyback|repurchase)\b/i,
     /\braises? (?:its )?dividend/i,
     /\bcuts? (?:its )?dividend/i,
     /\bsuspends? (?:its )?dividend/i,
@@ -193,6 +199,16 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+  ],
+  short_attack: [
+    // Named short-seller firms — their appearance alone is a high-impact signal.
+    // These firms publish independently; Reuters/Bloomberg wire the news within minutes.
+    /\b(?:Hindenburg Research|Muddy Waters|Citron Research|J\.?\s*Capital Research|Spruce Point Capital|Grizzly Research|Bleecker Street Research|Blue Orca Capital|Gotham City Research|Fuzzy Panda Research|Jehoshaphat Research|Quintessential Capital)\b/i,
+    // Generic short-publication events
+    /\bshort[- ]seller (?:report|targets?|publishes?|releases?)\b/i,
+    /\bshort (?:report|thesis) (?:on|against|targets?)\b/i,
+    // Fraud allegations — typically short-campaign driven and always material
+    /\baccus(?:es?|ations?) of (?:fraud|accounting fraud|accounting irregularities|channel stuffing|round-tripping)\b/i,
   ],
 };
 
@@ -231,7 +247,7 @@ const EXCLUSIONS: RegExp[] = [
   /\bevening brief\b/i,
   /\bweekly recap\b/i,
   /\b(?:market|stock market) wrap\b/i,
-  /\btop (?:gainers?|losers?)/i,
+  /\btop (?:gainers?|losers?)\b/i,
   /\bbiggest movers\b/i,
   /\b\d+ reasons? to\b/i,
   /\b(?:will|could) \w+ stock\b/i,
@@ -281,6 +297,8 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Short-seller attack — typically -20-50% intraday; no threshold needed
+  if (categories.includes("short_attack")) return true;
   return false;
 }
 
