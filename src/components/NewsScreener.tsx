@@ -15,15 +15,16 @@ import { Bell, BellOff, Circle, ExternalLink, Filter, Zap } from "lucide-react";
  */
 
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
-  earnings:   { label: "EARNINGS",   color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
-  guidance:   { label: "GUIDANCE",   color: "bg-cyan-500/20    text-cyan-300    border-cyan-500/40"    },
-  ma:         { label: "M&A",        color: "bg-violet-500/20  text-violet-300  border-violet-500/40"  },
-  fda:        { label: "FDA",        color: "bg-pink-500/20    text-pink-300    border-pink-500/40"    },
-  regulatory: { label: "REGULATORY", color: "bg-amber-500/20   text-amber-300   border-amber-500/40"   },
-  csuite:     { label: "C-SUITE",    color: "bg-purple-500/20  text-purple-300  border-purple-500/40"  },
-  corporate:  { label: "CORPORATE",  color: "bg-blue-500/20    text-blue-300    border-blue-500/40"    },
-  contracts:  { label: "CONTRACT",   color: "bg-teal-500/20    text-teal-300    border-teal-500/40"    },
-  analyst:    { label: "ANALYST",    color: "bg-slate-500/20   text-slate-300   border-slate-500/40"   },
+  earnings:     { label: "EARNINGS",   color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
+  guidance:     { label: "GUIDANCE",   color: "bg-cyan-500/20    text-cyan-300    border-cyan-500/40"    },
+  ma:           { label: "M&A",        color: "bg-violet-500/20  text-violet-300  border-violet-500/40"  },
+  fda:          { label: "FDA",        color: "bg-pink-500/20    text-pink-300    border-pink-500/40"    },
+  regulatory:   { label: "REGULATORY", color: "bg-amber-500/20   text-amber-300   border-amber-500/40"   },
+  csuite:       { label: "C-SUITE",    color: "bg-purple-500/20  text-purple-300  border-purple-500/40"  },
+  corporate:    { label: "CORPORATE",  color: "bg-blue-500/20    text-blue-300    border-blue-500/40"    },
+  contracts:    { label: "CONTRACT",   color: "bg-teal-500/20    text-teal-300    border-teal-500/40"    },
+  analyst:      { label: "ANALYST",    color: "bg-slate-500/20   text-slate-300   border-slate-500/40"   },
+  short_attack: { label: "SHORT ATK",  color: "bg-red-600/20     text-red-300     border-red-600/40"     },
 };
 
 export function NewsScreener() {
