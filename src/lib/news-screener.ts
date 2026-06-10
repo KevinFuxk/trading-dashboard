@@ -120,6 +120,11 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // Pre-announcements — often hit before the official report and are extremely market-moving
+    /\bpre[- ]announces?\b/i,
+    /\bpreliminary (?:results?|revenue|earnings|EPS|financial)/i,
+    /\bprovides? (?:preliminary|pre-release) (?:results?|outlook)/i,
+    /\bpre[- ]announcement\b/i,
   ],
   guidance: [
     /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
@@ -194,6 +199,17 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Short-seller reports — Hindenburg/Muddy Waters reports on S&P 500 names cause 20-50% drops.
+  // They appear in Reuters/Bloomberg as legitimate news and need their own trigger path.
+  shortseller: [
+    /\bHindenburg Research\b/i,
+    /\bMuddy Waters\b/i,
+    /\bCitron Research\b/i,
+    /\bIceberg Research\b/i,
+    /\bSpruce Point Capital\b/i,
+    /\bshort[- ]seller (?:report|attack|targets?|calls?|accuses?)\b/i,
+    /\bactivist short(?:[- ]seller)?\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +263,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — same tier as Reuters/Bloomberg, breaks M&A/earnings first
+  "Dow Jones", "Dow Jones Newswires", "DJ Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,10 +275,19 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
+  // Short-seller reports — always high-impact; stocks fall 20-50% on Hindenburg/Muddy Waters drops
+  if (categories.includes("shortseller")) return true;
   // Earnings beat by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    // Earnings miss by ≥10% — stocks fall harder on misses than they rise on beats
+    const missM = title.match(/miss(?:es?|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
+    // Pre-announcement with miss + guidance cut — double negative, extreme downside
+    if (categories.includes("guidance") &&
+        /\b(?:miss|below|short|weaker)/i.test(title) &&
+        /\b(?:cut|lower|reduc|slash|trim|withdraw|suspend)/i.test(title)) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -358,8 +385,11 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
 
     const isHighImpact = detectHighImpact(cleanTitle, categories);
 
+    // Stable ID: ticker + URL only (no timestamp). Finviz occasionally bumps the
+    // timestamp on an existing article; including ts.getTime() here caused the SSE
+    // route's seenIds check to miss the dupe, re-firing the chime on the same story.
     results.push({
-      id: `${cleanTicker}_${ts.getTime()}_${url}`,
+      id: `${cleanTicker}_${url}`,
       ticker: cleanTicker,
       title: cleanTitle,
       source: cleanSource,

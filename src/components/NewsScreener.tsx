@@ -24,6 +24,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   corporate:  { label: "CORPORATE",  color: "bg-blue-500/20    text-blue-300    border-blue-500/40"    },
   contracts:  { label: "CONTRACT",   color: "bg-teal-500/20    text-teal-300    border-teal-500/40"    },
   analyst:    { label: "ANALYST",    color: "bg-slate-500/20   text-slate-300   border-slate-500/40"   },
+  shortseller:{ label: "SHORT RPT",  color: "bg-red-500/20     text-red-300     border-red-500/40"     },
 };
 
 export function NewsScreener() {
