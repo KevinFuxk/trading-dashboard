@@ -191,8 +191,22 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
+    // Goldman + JPM: track everything including PT raises/cuts (highest vol movers)
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Tier-1 banks: only actual rating changes (upgrade/downgrade/initiation) —
+    // omitting "raises/cuts" to avoid PT-adjustment noise that triggered the June-5 rollback
+    /\bMorgan Stanley (?:upgrades?|downgrades?|initiates?)/i,
+    /\b(?:Bank of America|BofA|BAML|Merrill Lynch) (?:upgrades?|downgrades?|initiates?)/i,
+    /\bCitigroup? (?:upgrades?|downgrades?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|initiates?)/i,
+    /\bRBC (?:Capital Markets? )?(?:upgrades?|downgrades?|initiates?)/i,
+    // Universal conviction signals (any bank) — always high-alpha
+    /\bdouble[- ](?:upgrade|downgrade)\b/i,
+    /\bconviction (?:buy|sell)\b/i,
   ],
 };
 
@@ -247,6 +261,7 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  "Dow Jones Newswires", "Dow Jones",   // institutional wire, often first on analyst calls
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -281,6 +296,11 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Analyst: double upgrade/downgrade or Goldman conviction list — strongest directional signals
+  if (categories.includes("analyst")) {
+    if (/\bdouble[- ](?:upgrade|downgrade)\b/i.test(title)) return true;
+    if (/\bconviction (?:buy|sell)\b/i.test(title)) return true;
+  }
   return false;
 }
 
