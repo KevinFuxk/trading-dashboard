@@ -120,6 +120,12 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // Pre-announcements and profit warnings arrive days before the report — early alpha
+    /\bpre[- ]?announces? (?:earnings|revenue|results|EPS|fiscal)/i,
+    /\bpreliminary (?:earnings|revenue|results|EPS|fiscal \w+ results)/i,
+    /\bprofit warning\b/i,
+    /\bwarn(?:s|ing|ed)? on (?:earnings|revenue|results|outlook)/i,
+    /\b(?:issues?|provides?) (?:an? )?earnings (?:warning|alert|update)/i,
   ],
   guidance: [
     /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
@@ -194,6 +200,21 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Capital raises: secondary offerings, convertible notes, ATM programs.
+  // All are immediately dilutive (bearish) or signal balance-sheet stress.
+  offering: [
+    /\bprices? (?:a |an |its )?(?:public )?(?:secondary |follow-on |common stock |ordinary share )?offering\b/i,
+    /\bannounces? (?:pricing of|a |an )?(?:public )?(?:secondary |follow-on |upsized )?offering\b/i,
+    /\bsecondary (?:public )?offering\b/i,
+    /\bfollow-on (?:public )?offering\b/i,
+    /\bupsizes? (?:its )?(?:public )?offering\b/i,
+    /\b(?:ATM|at-the-market) (?:program|offering|equity program|facility)\b/i,
+    /\bconvertible (?:notes?|senior notes?|bonds?) (?:offering|due \d{4}|pricing)\b/i,
+    /\bprices? (?:a |an )?\$[\d.]+\s*(?:million|billion) (?:of (?:common stock|ordinary shares?|notes?)|(?:in )?(?:a )?(?:public )?offering)\b/i,
+    /\bpublic offering of (?:common stock|ordinary shares?)\b/i,
+    /\bregistered direct offering\b/i,
+    /\bprivate placement of (?:common stock|notes?|warrants?)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +268,10 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswire — institutional real-time wire (Finviz lists as "DJ" or "Dow Jones")
+  "Dow Jones", "DJ", "Dow Jones Newswire",
+  // The Fly on the Wall — specialist institutional news used by sell-side desks
+  "The Fly", "Fly on the Wall",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -273,12 +298,26 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Bankruptcy — extreme market mover for equity holders
   if (categories.includes("regulatory") &&
       /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // DOJ/SEC charges against a named company — stock can drop 20%+ intraday
+  if (categories.includes("regulatory") &&
+      /\b(?:SEC|DOJ|Department of Justice) (?:charges?|sues|files charges|indicts?)\b/i.test(title)) return true;
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Profit warning / earnings pre-announcement miss — high-urgency early signal
+  if (categories.includes("earnings") &&
+      /\bprofit warning\b|\bwarn(?:s|ing|ed)? on (?:earnings|revenue)\b|\bpre[- ]?announces?.*(?:miss|below|short)\b/i.test(title)) return true;
+  // Capital raises: secondary offerings and convertibles are immediately dilutive
+  if (categories.includes("offering") &&
+      /\b(?:secondary|follow-on) (?:public )?offering\b|\bconvertible (?:notes?|senior notes?)\b|\bprices? (?:a |an )?\$[\d.]+\s*(?:million|billion)/i.test(title)) return true;
+  // Large share buyback ($5B+) — major capital return signal
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase|share repurchase)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
