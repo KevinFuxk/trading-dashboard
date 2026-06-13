@@ -190,9 +190,19 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bgovernment contract\b/i,
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
+  // Expanded from 2 banks (Goldman, JPM) to 10 major sell-side desks.
+  // Added `resumes?` verb — "resumes coverage" is an actionable event.
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\b(?:Bank of America|BofA) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\b(?:Citigroup|Citi) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\b(?:RBC Capital|RBC) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?|resumes?)/i,
   ],
 };
 
@@ -243,10 +253,11 @@ const EXCLUSIONS: RegExp[] = [
 // ════════════════════════════════════════════════════════════════
 
 const TRUSTED_SOURCES = new Set<string>([
-  // Tier A — real journalism
+  // Tier A — real journalism / institutional wires
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  "Dow Jones",                    // Dow Jones Newswires — Reuters/Bloomberg-tier institutional wire
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -255,6 +266,11 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 //  HIGH-IMPACT DETECTOR — triggers the sound chime
 // ════════════════════════════════════════════════════════════════
+
+// Tier 1 sell-side desks whose upgrades/downgrades cause large institutional
+// position rebalancing.
+const TIER1_BANKS_RE =
+  /\b(?:Goldman Sachs?|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citigroup|Citi)\b/i;
 
 function detectHighImpact(title: string, categories: string[]): boolean {
   // Earnings beat by ≥10%
@@ -281,6 +297,15 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Tier 1 bank upgrade or downgrade — drives large institutional rebalancing
+  if (categories.includes("analyst") &&
+      TIER1_BANKS_RE.test(title) &&
+      /\b(?:upgrades?|downgrades?)\b/i.test(title)) return true;
+  // $1B+ contract win — immediate revenue certainty, often a gap-up catalyst
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
   return false;
 }
 
