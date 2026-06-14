@@ -191,8 +191,22 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
+    // Bulge-bracket banks — all move S&P 500 / NDX names meaningfully
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA|BofA Securities|Merrill Lynch) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Citigroup|Citi(?:bank)?|Citi\b) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Wells Fargo|Wells Fargo Securities) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Deutsche Bank|DB Research) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Active mid-tier shops that regularly move NDX names
+    /\b(?:RBC Capital|RBC Capital Markets) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Piper Sandler|Piper Jaffray) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -244,9 +258,11 @@ const EXCLUSIONS: RegExp[] = [
 
 const TRUSTED_SOURCES = new Set<string>([
   // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
+  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC", "CNBC.com",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — fast wire used heavily by Finviz; same tier as Reuters
+  "Dow Jones Newswires", "Dow Jones", "DJ Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -281,6 +297,21 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Analyst: top-bank initiation with strong buy rating — routinely gaps S&P 500 names 3-6%
+  if (categories.includes("analyst") &&
+      /\binitiates?\b/i.test(title) &&
+      /\b(?:Buy|Overweight|Outperform|Strong Buy|Top Pick)\b/i.test(title) &&
+      /\b(?:Goldman|JPMorgan|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|Barclays|Wells Fargo|UBS|Deutsche Bank)\b/i.test(title)) return true;
+  // Analyst: double-digit price-target raise (≥20%) from a major bank signals conviction upgrade
+  if (categories.includes("analyst")) {
+    const ptRaise = title.match(/(?:raises?|lifts?|hikes?) (?:price target|PT|target|target price) (?:to|from \$[\d,]+ to) \$?([\d,]+)/i);
+    const ptFrom  = title.match(/from \$?([\d,]+) to \$?([\d,]+)/i);
+    if (ptRaise && ptFrom) {
+      const from = parseFloat(ptFrom[1].replace(/,/g, ""));
+      const to   = parseFloat(ptFrom[2].replace(/,/g, ""));
+      if (from > 0 && (to - from) / from >= 0.25) return true; // ≥25% raise = high-impact
+    }
+  }
   return false;
 }
 
