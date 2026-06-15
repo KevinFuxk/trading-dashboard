@@ -194,6 +194,23 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Secondary / follow-on equity offerings dilute existing holders and
+  // almost always cause an immediate -3% to -8% gap on the open.
+  offering: [
+    /\bprices? (?:its? )?(?:\d+(?:\.\d+)?\s*million )?(?:shares? of )?(?:public |follow-on |secondary |underwritten )?(?:equity |common stock )?offering\b/i,
+    /\bannounces? (?:pricing of )?(?:a |an )?(?:underwritten |registered direct |accelerated )?(?:follow-on |secondary )?public (?:equity |share )?offering\b/i,
+    /\bat-the-market (?:equity )?(?:offering|program)\b/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:M|B|million|billion) (?:public |follow-on |secondary |underwritten )?(?:equity |common stock |share )?offering\b/i,
+    /\bannounces? \d+(?:\.\d+)?\s*million (?:shares?|ADS) (?:in |of )?(?:a |an )?(?:secondary|underwritten|public)?\s*offering\b/i,
+  ],
+  // Short seller reports from named activist research firms. Rare for S&P 500
+  // mega-caps but when they land they cause -15% to -40% intraday moves.
+  short: [
+    /\b(?:Hindenburg Research|Citron Research|Muddy Waters|Gotham City Research|Bonitas Research|Kerrisdale Capital|Spruce Point Capital|J Capital Research|Fuzzy Panda Research|Grizzly Research|Wolfpack Research|Bleeker Street Research)\b/i,
+    /\bshort[- ]seller (?:report|targets?|attacks?|alleges?|accuses?)\b/i,
+    /\bshort report (?:on|targeting|alleges?|claims?)\b/i,
+    /\bactivist short(?: seller| investor)?\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -281,6 +298,15 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Equity offerings ≥ $500M create large immediate supply overhang
+  if (categories.includes("offering")) {
+    const mB = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (mB && parseFloat(mB[1]) >= 0.5) return true;
+    const mM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:M|million)/i);
+    if (mM && parseFloat(mM[1]) >= 500) return true;
+  }
+  // Short seller reports always move the stock hard — flag every one
+  if (categories.includes("short")) return true;
   return false;
 }
 
@@ -325,7 +351,8 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   // Parse CSV: "Title","Source",Date,"Url",Category,"Ticker"
   const lines = csv.split(/\r?\n/).slice(1);
   const results: ScreenedHeadline[] = [];
-  let parseFails = 0, universeRejects = 0, sourceRejects = 0, triggerRejects = 0, exclusionRejects = 0;
+  const STALE_CUTOFF_MS = Date.now() - 24 * 3600_000;
+  let parseFails = 0, universeRejects = 0, sourceRejects = 0, triggerRejects = 0, exclusionRejects = 0, staleRejects = 0;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -356,6 +383,9 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
     const ts = new Date(dateStr.trim().replace(" ", "T") + "Z");
     if (isNaN(ts.getTime())) continue;
 
+    // Drop anything older than 24 hours — keeps the feed same-day only
+    if (ts.getTime() < STALE_CUTOFF_MS) { staleRejects++; continue; }
+
     const isHighImpact = detectHighImpact(cleanTitle, categories);
 
     results.push({
@@ -382,7 +412,7 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const latency = Date.now() - t0;
-  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
+  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects} stale=${staleRejects}`);
 
   lastFetchAt = Date.now();
   lastResults = deduped;
