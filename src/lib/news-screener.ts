@@ -185,6 +185,9 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   contracts: [
     /\b(?:wins?|awarded|secures?) (?:a )?(?:contract|deal) (?:worth|valued|with)/i,
     /\b\$\d+(?:\.\d+)?\s*(?:B|billion) (?:contract|deal|order)/i,
+    // catch "wins $5B defense contract" where a modifier sits between amount and noun
+    /\bwins? \$\d+(?:\.\d+)?\s*(?:B|M|billion|million)\b/i,
+    /\bawarded? \$\d+(?:\.\d+)?\s*(?:B|M|billion|million)\b/i,
     /\bPentagon (?:contract|award|deal)/i,
     /\bdefense contract\b/i,
     /\bgovernment contract\b/i,
@@ -247,6 +250,9 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — same editorial standards as WSJ/Barron's; Finviz
+  // tags some WSJ-sourced articles as "Dow Jones" on the wire.
+  "Dow Jones",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,10 +263,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10% — large surprise in either direction is always material
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beat = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beat && parseInt(beat[1]) >= 10) return true;
+    const miss = title.match(/miss(?:es|ed|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (miss && parseInt(miss[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -276,9 +284,17 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
-  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  // Guidance cut/withdrawal — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — bullish catalyst; forward multiple re-rate
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — significant capital allocation signal
+  if (categories.includes("corporate")) {
+    const bk = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (bk && parseFloat(bk[1]) >= 5) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
