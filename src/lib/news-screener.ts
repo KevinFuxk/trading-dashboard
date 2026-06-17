@@ -191,8 +191,23 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Bulge bracket — highest market impact
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\b(?:J\.?P\.?\s*Morgan|JPMorgan) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\b(?:Bank of America|BofA) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\b(?:Citigroup|Citi) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // High-influence mid-tier
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBernstein (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:TD Cowen|Cowen) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRaymond James (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -281,6 +296,19 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Analyst: downgrade to Sell/Underperform is always a major move signal
+  if (categories.includes("analyst")) {
+    if (/\bdowngrades?\b.{0,40}\bto\b.{0,20}\b(?:sell|underperform|underweight|reduce|negative)\b/i.test(title)) return true;
+    // Bulge-bracket fresh initiation at Buy/Outperform on an S&P name gets heavy coverage
+    if (/\b(?:Goldman Sachs|Goldman|Morgan Stanley|J\.?P\.?\s*Morgan|JPMorgan|Bank of America|BofA|Citigroup|Citi|Barclays)\b.{0,60}\binitiates?\b.{0,40}\b(?:buy|overweight|outperform)\b/i.test(title)) return true;
+  }
+  // Corporate: $5B+ buyback is a significant capital return signal
+  if (categories.includes("corporate")) {
+    const buybackMatch = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (buybackMatch && parseFloat(buybackMatch[1]) >= 5) return true;
+    // Special dividend is always newsworthy — unexpected capital return
+    if (/\bspecial dividend\b/i.test(title)) return true;
+  }
   return false;
 }
 
