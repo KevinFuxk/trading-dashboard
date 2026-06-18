@@ -191,8 +191,46 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Bank-first constructions: "Goldman upgrades AAPL"
+    /\b(?:Goldman Sachs?|Goldman)\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bJ\.?P\.?\s*Morgan\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bMorgan Stanley\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bBank of America\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bBofA\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bCiti(?:group)?\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bBarclays\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bDeutsche Bank\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bWells Fargo\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bUBS\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bJefferies\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bRBC\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bPiper Sandler\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bCowen\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bNeedham\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bKeyBanc\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bWolfe Research\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    /\bOppenheimer\b.{0,25}(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)\b/i,
+    // Stock-first constructions: "AAPL upgraded to Buy at Goldman Sachs"
+    /\b(?:upgrade[sd]?|downgrade[sd]?)\b.{0,30}\bat\s+(?:Goldman|JPMorgan|J\.P\. Morgan|Morgan Stanley|Bank of America|BofA|Citi|Barclays|Deutsche Bank|Wells Fargo|UBS|Jefferies|RBC|Piper Sandler|Cowen|Needham|KeyBanc|Wolfe|Oppenheimer)\b/i,
+  ],
+  restructuring: [
+    /\b(?:lays?[- ]off|laying[- ]off)\s+\d[\d,]*\s+(?:workers?|employees?|jobs?|people|staff)\b/i,
+    /\b\d[\d,]*\s+(?:workers?|employees?|jobs?|positions?)\s+(?:laid[- ]off|cut|eliminated?|axed)\b/i,
+    /\bcuts?\s+\d[\d,]*\s+jobs?\b/i,
+    /\bannounces?\s+(?:mass\s+)?(?:layoffs?|workforce\s+reduction|headcount\s+reduction|job\s+cuts?)\b/i,
+    /\bplans?\s+to\s+(?:cut|eliminate?|reduce|shed)\s+\d[\d,]*\s+(?:jobs?|positions?|workers?|employees?)\b/i,
+    /\brestructuring\s+(?:plan|charge|program|initiative)\b/i,
+    /\bto\s+(?:eliminate?|cut)\s+(?:up\s+to\s+)?\d[\d,]*\s+(?:jobs?|positions?|roles?)\b/i,
+  ],
+  short_seller: [
+    /\bHindenburg Research\b/i,
+    /\bMuddy Waters\b/i,
+    /\bGotham City Research\b/i,
+    /\bCitron Research\b/i,
+    /\bSpruce Point Capital\b/i,
+    /\bGlaucus Research\b/i,
+    /\bshort[- ]seller\s+(?:report|targets?|attack|publishes?|releases?|alleges?)\b/i,
+    /\bshort\s+report\s+(?:targets?|on|against)\b/i,
   ],
 };
 
@@ -281,6 +319,16 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Double upgrade (Sell → Buy) from any major bank — rare, always moves stock
+  if (categories.includes("analyst") &&
+      /\bupgraded?\s+to\s+(?:buy|overweight|outperform)\s+from\s+(?:sell|underperform|underweight)\b/i.test(title)) return true;
+  // Short-seller reports always cause extreme dislocations
+  if (categories.includes("short_seller")) return true;
+  // Large-scale layoffs (≥5 000 jobs) — signals major operational stress
+  if (categories.includes("restructuring")) {
+    const m = title.match(/\b(\d[\d,]*)\s+(?:workers?|employees?|jobs?|positions?|roles?|staff)\b/i);
+    if (m && parseInt(m[1].replace(/,/g, ""), 10) >= 5000) return true;
+  }
   return false;
 }
 
