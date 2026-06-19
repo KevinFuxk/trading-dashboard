@@ -279,6 +279,18 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Double catalyst: earnings beat + guidance raise — strongest bullish signal, typically 5-15% gap-up
+  if (categories.includes("earnings") && categories.includes("guidance") &&
+      /\b(?:raises?|boosts?|lifts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — mega-cap capital return signal, reliably lifts stock 1-3%
+  if (categories.includes("corporate")) {
+    const buybackMatch = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase|share repurchase)/i);
+    if (buybackMatch && parseFloat(buybackMatch[1]) >= 5) return true;
+  }
+  // Goldman / JPM initiating with bullish rating — drives institutional re-rating
+  if (categories.includes("analyst") &&
+      /\b(?:Goldman Sachs|Goldman|J\.?P\.?\s*Morgan) initiates?\b/i.test(title) &&
+      /\b(?:Buy|Strong Buy|Overweight|Outperform)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
