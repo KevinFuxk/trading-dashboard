@@ -194,6 +194,28 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Dilution events — secondary offerings, converts, ATM programs drop share price on open
+  capital_raise: [
+    /\bprices? (?:public )?offering of [\d.,]+ million shares/i,
+    /\bprices? \$[\d.]+\s*(?:B|billion|M|million) (?:in )?(?:secondary|convertible|senior notes?|equity)/i,
+    /\bplans? to (?:offer|sell) [\d.,]+ million (?:common )?shares/i,
+    /\blaunches? (?:at[- ]the[- ]market|ATM) (?:offering|program)/i,
+    /\bfollow[- ]on (?:public )?offering\b/i,
+    /\bprices? convertible (?:notes?|senior notes?|debentures?)/i,
+    /\bdirect offering\b/i,
+    /\bPIPE (?:financing|transaction|deal)\b/i,
+    /\bcommences? (?:public )?offering of/i,
+  ],
+  // Workforce cuts and restructuring — tradeable on announcement
+  restructuring: [
+    /\bto (?:lay off|cut|eliminate) [\d,]+ (?:jobs|workers|employees|positions)/i,
+    /\b(?:lays?|laying) off [\d,]+ (?:employees|workers|jobs)/i,
+    /\bannounces? (?:major )?(?:layoffs?|workforce reduction|restructuring plan)\b/i,
+    /\b(?:cuts?|reduces?) (?:workforce|headcount) by [\d%,]+/i,
+    /\bplant (?:closure|shutdown|closing)\b/i,
+    /\brestructuring charge[sd]? of \$[\d.]+\s*(?:B|billion|M|million)/i,
+    /\bto close [\d]+ (?:facilities|plants|stores|offices)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +269,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — major wire that breaks corporate news in Finviz CSVs
+  "Dow Jones", "Dow Jones Newswires", "DJ",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -281,6 +305,24 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Activist 13D disclosure — almost always triggers a significant move
+  if (categories.includes("csuite") && /\b13D filing\b/i.test(title)) return true;
+  // Large buyback ($3B+) — strong demand signal, drives immediate buying
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\b.*\b(?:buyback|repurchase)/i)
+           ?? title.match(/\b(?:buyback|repurchase)\b.*\$(\d+(?:\.\d+)?)\s*(?:B|billion)\b/i);
+    if (m && parseFloat(m[1]) >= 3) return true;
+  }
+  // Capital raise ≥ $1B — material dilution for shareholders
+  if (categories.includes("capital_raise")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\b/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
+  // Mass layoffs (≥ 1,000 employees) — rare for large-caps; always a major catalyst
+  if (categories.includes("restructuring")) {
+    const m = title.match(/\b([\d,]+)\s*(?:jobs|workers|employees|positions)\b/i);
+    if (m && parseInt(m[1].replace(/,/g, ""), 10) >= 1000) return true;
+  }
   return false;
 }
 
