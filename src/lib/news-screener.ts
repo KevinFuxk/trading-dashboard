@@ -193,6 +193,24 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA)(?: Securities| Merrill Lynch)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC Capital (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBernstein (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bHSBC (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTruist (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRaymond James (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bStifel (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -257,10 +275,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat ≥10% OR miss ≥10% — both are high-impact for S&P 500 names
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -279,6 +299,13 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — capital return at scale is always market-moving
+  if (categories.includes("corporate")) {
+    const buyM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase|share repurchase)/i);
+    if (buyM && parseFloat(buyM[1]) >= 5) return true;
+  }
+  // Standalone activist 13D filing — alone it's always high-impact (Elliott, Starboard, etc.)
+  if (categories.includes("csuite") && /\b13D filing\b/.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
