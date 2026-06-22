@@ -160,6 +160,10 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bChapter 11\b/,
     /\bfile[sd]? for bankruptcy/i,
     /\bvoluntar(?:y|ily) bankruptcy/i,
+    /\bgoing[- ]concern (?:warning|doubt|qualification|opinion)\b/i,
+    /\bgoing concern\b/i,
+    /\bdefault(?:ed|s|ing)? on (?:its |a )?(?:debt|bonds?|notes?|payment|loan)\b/i,
+    /\bmissed? (?:debt |bond |interest |coupon )?payment\b/i,
   ],
   csuite: [
     /\bCEO (?:resigns?|steps? down|departs?|fired|out|to step down)/i,
@@ -191,8 +195,27 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|reaffirms?)/i,
+    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?|reaffirms?)/i,
+  ],
+  // Equity dilution — major bearish catalyst (offerings = forced repricing)
+  offering: [
+    /\b(?:prices?|announces?|completes?) (?:a )?(?:public |common stock |equity |secondary )?offering\b/i,
+    /\bsecondary (?:stock |equity |share )?offering\b/i,
+    /\b(?:at[- ]the[- ]market|ATM) (?:offering|equity program|program)\b/i,
+    /\bprices? (?:convertible (?:notes?|bonds?|debentures?))\b/i,
+    /\bequity (?:offering|issuance|raise|program)\b/i,
+    /\bshelf (?:registration|offering)\b/i,
+    /\b(?:to )?raise[sd]? \$[\d.]+\s*(?:B|billion|M|million) (?:through|via|in) (?:stock|shares|equity|common stock)\b/i,
+  ],
+  // Credit rating actions — triggers covenant clauses, margin calls, forced selling
+  credit: [
+    /\b(?:Moody'?s|Moodys) (?:downgrades?|upgrades?|affirms?|cuts?|assigns?|lowers?|reviews?)\b/i,
+    /\bFitch (?:downgrades?|upgrades?|affirms?|cuts?|assigns?|lowers?|reviews?)\b/i,
+    /\bS&P (?:downgrades?|upgrades?|affirms?|cuts?|assigns?|lowers?)\b/i,
+    /\bStandard &? Poor'?s? (?:downgrades?|upgrades?|affirms?|cuts?|lowers?)\b/i,
+    /\bdowngraded? to (?:junk|speculative[- ]grade|non[- ]investment[- ]grade|Ba[123]?|B[123])\b/i,
+    /\bcredit (?:rating|outlook) (?:downgraded?|upgraded?|cut|lowered?|raised?)\b/i,
   ],
 };
 
@@ -281,6 +304,20 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Going-concern warning (imminent existential risk — stock typically -50% to -80%)
+  if (categories.includes("regulatory") &&
+      /\bgoing[- ]concern\b/i.test(title)) return true;
+  // Debt default / missed payment (cross-default clauses, forced liquidation)
+  if (categories.includes("regulatory") &&
+      /\b(?:default(?:ed|s|ing)? on|missed? (?:debt |bond |interest |coupon )?payment)\b/i.test(title)) return true;
+  // Credit downgrade to junk (covenant triggers, index exclusion, forced selling)
+  if (categories.includes("credit") &&
+      /\bdowngraded? to (?:junk|speculative[- ]grade|non[- ]investment[- ]grade|Ba[123]?|B[123])\b/i.test(title)) return true;
+  // Large equity offering ≥$1B (significant dilution, reprices the float)
+  if (categories.includes("offering")) {
+    const offeringM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (offeringM && parseFloat(offeringM[1]) >= 1) return true;
+  }
   return false;
 }
 
