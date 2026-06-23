@@ -193,6 +193,37 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBank of America (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBofA (?:upgrades?|downgrades?|raises?|cuts?|initiates?|Securities)/i,
+    /\bCitigroup (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti (?:upgrades?|downgrades?|raises?|cuts?|initiates?) \w/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?) \w/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital|Markets) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bEvercore (?:ISI )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bStifel (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTruist (?:Securities )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWedbush (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNomura (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bHSBC (?:upgrades?|downgrades?|raises?|cuts?|initiates?) \w/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bKeyBanc (?:Capital )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBMO (?:Capital )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?) \w/i,
+    /\bCowen (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRaymond James (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham (?:upgrades?|downgrades?|raises?|cuts?|initiates?) \w/i,
+    /\bLeerink (?:Partners )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCanaccord (?:Genuity )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWilliam Blair (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTD (?:Cowen|Securities) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCraig-Hallum (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bLake Street (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -247,6 +278,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — separate Finviz source string, distinct from "WSJ"
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,10 +290,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +316,16 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Large buyback ($5B+) — immediate EPS accretion signal
+  if (categories.includes("corporate") && /\brepurchase\b|\bbuyback\b/i.test(title)) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
+  // Large government/defense contract ($5B+) — significant revenue visibility
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
   return false;
 }
 
