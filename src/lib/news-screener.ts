@@ -193,6 +193,19 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+  ],
+  // Secondary equity / convertible offerings — dilution events, typically -5% to -15%
+  offering: [
+    /\bprices? (?:a )?(?:public |underwritten )?(?:secondary |follow[- ]on |common stock )?offering(?: of)?/i,
+    /\bsecondary (?:share|stock|public) offering\b/i,
+    /\bfollow[- ]on (?:public )?offering\b/i,
+    /\bprices? convertible (?:senior |subordinated )?notes?\b/i,
+    /\bat[- ]the[- ]market (?:equity |share )?(?:offering|program)\b/i,
+    /\bregistered direct offering\b/i,
+    /\bprices? \$[\d.,]+ (?:billion|million)(?: of)? (?:common stock|ordinary shares?|ADS|ADR)/i,
+    /\bannounces? (?:a |\$)?[\d.,]+ (?:billion|million) (?:public |secondary )?(?:share |stock )?offering/i,
+    /\bpublic offering of (?:common stock|ordinary shares?|ADS|ADR)/i,
   ],
 };
 
@@ -273,12 +286,27 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Bankruptcy — extreme market mover for equity holders
   if (categories.includes("regulatory") &&
       /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // SEC charges or DOJ indictment — material legal jeopardy for the company
+  if (categories.includes("regulatory") &&
+      /\bSEC charges?\b|\bDOJ (?:charges?|indicts?|sues)\b|\bcriminal charges?\b/i.test(title)) return true;
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
-  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  // Guidance cut or withdrawal — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — positive catalyst, typically +5-10%
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?) (?:its |full[- ]year )?(?:guidance|forecast|outlook|fy ?\d+)/i.test(title)) return true;
+  // Large equity offering ($500M+) — dilution event, material price-mover
+  if (categories.includes("offering")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(B|billion|M|million)/i);
+    if (m) {
+      const num = parseFloat(m[1]);
+      const sizeM = /^b/i.test(m[2]) ? num * 1000 : num;
+      if (sizeM >= 500) return true;
+    }
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
