@@ -191,8 +191,20 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Bulge-bracket + major regional upgrades/downgrades/initiations/PT changes.
+    // Previously only Goldman + JPMorgan were covered; expanded to all major houses.
+    /\b(?:Goldman Sachs?|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\b(?:J\.?P\.?\s*Morgan|JPMorgan) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\b(?:Bank of America|BofA|Merrill Lynch) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\b(?:Citigroup|Citi) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\b(?:RBC Capital|RBC) (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|lowers?|initiates?)/i,
   ],
 };
 
@@ -244,9 +256,11 @@ const EXCLUSIONS: RegExp[] = [
 
 const TRUSTED_SOURCES = new Set<string>([
   // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
+  "Reuters", "Bloomberg", "Wall Street Journal", "The Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — fastest corporate wire; appears as "Dow Jones" in Finviz
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,11 +271,14 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat by ≥10% (explicit percentage in headline)
   if (categories.includes("earnings")) {
     const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
     if (m && parseInt(m[1]) >= 10) return true;
   }
+  // Earnings beat + guidance raise = biggest movers (beat-and-raise)
+  if (categories.includes("earnings") && categories.includes("guidance") &&
+      /\braises?\s+(?:guidance|forecast|outlook)/i.test(title)) return true;
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
   // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
