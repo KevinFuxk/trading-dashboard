@@ -194,6 +194,27 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Profit warnings & pre-announcements — the single most explosive catalyst
+  // (stocks move -15% to -30% in minutes; absent from every other category).
+  preannounce: [
+    /\bprofit warning\b/i,
+    /\bpre[- ]announc(?:es?|ing|ement)\b/i,
+    /\bpreliminary (?:q[1-4]|quarterly|annual|full[- ]year) (?:results?|revenue|earnings|sales)/i,
+    /\bwarn(?:s|ing|ed) of (?:weaker[- ]than|lower[- ]than|below)[- ]expected/i,
+    /\bexpects? (?:revenue|sales|earnings|profit) (?:to )?(?:fall|decline|miss|be below)/i,
+    /\bshortfall in (?:revenue|earnings|profit|sales)/i,
+    /\bbelow[- ]consensus (?:revenue|earnings|guidance)/i,
+  ],
+  // Secondary / follow-on offerings — immediate dilution signal, typically -10%+
+  offering: [
+    /\bprices? (?:public |follow[- ]on |secondary )offering/i,
+    /\bannounces? (?:public |secondary |follow[- ]on )offering/i,
+    /\bsecondary offering\b/i,
+    /\bfollow[- ]on offering\b/i,
+    /\bat[- ]the[- ]market offering\b/i,
+    /\bpublic offering of (?:common )?(?:stock|shares)\b/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:B|M|billion|million) (?:public |follow[- ]on |secondary )?stock offering\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -273,6 +294,9 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Bankruptcy — extreme market mover for equity holders
   if (categories.includes("regulatory") &&
       /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // DOJ/SEC enforcement — criminal charges or SEC enforcement action on S&P names
+  if (categories.includes("regulatory") &&
+      /\b(?:DOJ|SEC) (?:charges?|indicts?|arrests?|sues|files charges|criminal)\b/i.test(title)) return true;
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
@@ -281,6 +305,18 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Profit warning / pre-announcement — always high-impact (biggest single-day movers)
+  if (categories.includes("preannounce")) return true;
+  // Large secondary offering ($500M+) — significant dilution event
+  if (categories.includes("offering")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(B|M|billion|million)/i);
+    if (m) {
+      const val = parseFloat(m[1]);
+      const unit = m[2].toLowerCase();
+      const usd = unit === "b" || unit === "billion" ? val * 1000 : val;
+      if (usd >= 500) return true;
+    }
+  }
   return false;
 }
 
