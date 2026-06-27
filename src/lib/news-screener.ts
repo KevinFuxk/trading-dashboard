@@ -193,6 +193,8 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\b(?:Bank of America|BofA)(?: Securities)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
   ],
 };
 
@@ -259,8 +261,11 @@ const TRUSTED_SOURCES = new Set<string>([
 function detectHighImpact(title: string, categories: string[]): boolean {
   // Earnings beat by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+(?:\.\d+)?)%/i);
+    if (beatM && parseFloat(beatM[1]) >= 10) return true;
+    // Earnings miss by ≥10% — strong short signal
+    const missM = title.match(/miss(?:es?|ing)?\s+(?:by\s+)?(\d+(?:\.\d+)?)%/i);
+    if (missM && parseFloat(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -276,9 +281,20 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
-  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  // Guidance cut/withdrawal — major downside uncertainty signal
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — equally high-impact bullish catalyst (stocks gap up 5-15% on raises)
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i.test(title)) return true;
+  // Activist campaign / 13D filing — reliable 10-20% event-driven move
+  if (categories.includes("csuite") &&
+      /\b(?:activist|13[- ]?D filing|proxy fight|hostile stake)\b/i.test(title)) return true;
+  // Large buyback ($3B+) — major capital return signal, consistently moves stock 3-8%
+  if (categories.includes("corporate")) {
+    const bm = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase)/i);
+    if (bm && parseFloat(bm[1]) >= 3) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
