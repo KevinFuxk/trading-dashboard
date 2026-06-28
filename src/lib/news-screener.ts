@@ -191,8 +191,27 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Bulge bracket — highest AUM, most market-moving calls
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bBank of America (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bBofA (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    // Strong regional / specialty coverage desks — frequently market-moving on mid-cap names
+    /\bRBC (?:Capital )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTD Cowen (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bStifel (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bKeyBanc (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -279,8 +298,16 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — equally actionable for longs (upside revision on a large-cap moves it 3-6%)
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Bulge-bracket initiation or upgrade to a bullish rating — typically 3-6% gap on open
+  if (categories.includes("analyst") &&
+      /\b(?:Goldman Sachs|Goldman|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citi(?:group)?|Barclays|Deutsche Bank|Wells Fargo|UBS)\b/i.test(title) &&
+      /\b(?:initiates?|upgrades?)\b/i.test(title) &&
+      /\b(?:Buy|Strong Buy|Outperform|Overweight)\b/i.test(title)) return true;
   return false;
 }
 
