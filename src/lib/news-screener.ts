@@ -193,6 +193,16 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA|BofA Securities) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTD Cowen (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -281,6 +291,22 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // SEC/DOJ charges — extreme downside catalyst for equity holders
+  if (categories.includes("regulatory") &&
+      /\bSEC (?:charges?|sues|files charges?)\b|\bDOJ (?:charges?|indicts?|sues)\b/i.test(title)) return true;
+  // Activist 13D filing or proxy fight — often triggers major corporate restructuring
+  if (categories.includes("csuite") &&
+      /\b13D filing\b|\bproxy fight\b|\bactivist (?:investor|stake|campaign)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — highly material bullish signal for mega-caps
+  if (categories.includes("corporate")) {
+    const buybackM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (buybackM && parseFloat(buybackM[1]) >= 5) return true;
+  }
+  // Large government / defense contract ($1B+) — material for defense and IT names
+  if (categories.includes("contracts")) {
+    const contractM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:contract|deal|order)/i);
+    if (contractM && parseFloat(contractM[1]) >= 1) return true;
+  }
   return false;
 }
 
@@ -290,6 +316,10 @@ function detectHighImpact(title: string, categories: string[]): boolean {
 
 let lastFetchAt = 0;
 let lastResults: ScreenedHeadline[] = [];
+// In-flight dedup: prevent N SSE connections from each firing a Finviz request
+// on the same 5s tick. One request per CACHE_TTL_MS window is enough.
+let inflight: Promise<ScreenedHeadline[]> | null = null;
+const CACHE_TTL_MS = 4_500; // just under the 5s poll interval
 
 export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   const FINVIZ = process.env.FINVIZ_AUTH_TOKEN || "";
@@ -298,95 +328,108 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
     return [];
   }
 
-  // Always ensure universe is loaded
-  await loadUniverse();
-
-  const t0 = Date.now();
-  let csv = "";
-  try {
-    const r = await fetch(
-      `https://elite.finviz.com/news_export.ashx?v=3&auth=${FINVIZ}`,
-      {
-        headers: { "User-Agent": "Mozilla/5.0", "Accept": "text/csv" },
-        redirect: "follow",
-        signal: AbortSignal.timeout(8000),
-      }
-    );
-    if (!r.ok) {
-      console.warn(`[SCREENER] Finviz HTTP ${r.status}`);
-      return lastResults;
-    }
-    csv = await r.text();
-  } catch (err) {
-    console.warn("[SCREENER] Finviz fetch failed:", (err as Error).message);
+  // Return cached result if fresh — prevents N concurrent SSE connections from
+  // each firing a Finviz request on the same 5s tick.
+  if (lastFetchAt > 0 && Date.now() - lastFetchAt < CACHE_TTL_MS) {
     return lastResults;
   }
 
-  // Parse CSV: "Title","Source",Date,"Url",Category,"Ticker"
-  const lines = csv.split(/\r?\n/).slice(1);
-  const results: ScreenedHeadline[] = [];
-  let parseFails = 0, universeRejects = 0, sourceRejects = 0, triggerRejects = 0, exclusionRejects = 0;
+  // Deduplicate simultaneous callers: share a single in-flight request so N open
+  // SSE connections don't each fire a Finviz HTTP request on the same 5s tick.
+  if (inflight) return inflight;
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
+  inflight = (async () => {
+    await loadUniverse();
 
-    const m = line.match(/^"([^"]*)","([^"]*)",([^,]+),"([^"]*)",([^,]+),"([^"]+)"$/);
-    if (!m) { parseFails++; continue; }
-    const [, title, source, dateStr, url, _category, ticker] = m;
-    void _category;
-    const cleanTicker = ticker.trim().toUpperCase();
+    const t0 = Date.now();
+    let csv = "";
+    try {
+      const r = await fetch(
+        `https://elite.finviz.com/news_export.ashx?v=3&auth=${FINVIZ}`,
+        {
+          headers: { "User-Agent": "Mozilla/5.0", "Accept": "text/csv" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      if (!r.ok) {
+        console.warn(`[SCREENER] Finviz HTTP ${r.status}`);
+        return lastResults;
+      }
+      csv = await r.text();
+    } catch (err) {
+      console.warn("[SCREENER] Finviz fetch failed:", (err as Error).message);
+      return lastResults;
+    }
 
-    // FILTER 1: Universe (S&P 500 + Nasdaq 100)
-    if (!UNIVERSE.has(cleanTicker)) { universeRejects++; continue; }
+    // Parse CSV: "Title","Source",Date,"Url",Category,"Ticker"
+    const lines = csv.split(/\r?\n/).slice(1);
+    const results: ScreenedHeadline[] = [];
+    let parseFails = 0, universeRejects = 0, sourceRejects = 0, triggerRejects = 0, exclusionRejects = 0;
 
-    // FILTER 2: Trusted source
-    const cleanSource = source.trim();
-    if (!TRUSTED_SOURCES.has(cleanSource)) { sourceRejects++; continue; }
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
 
-    // FILTER 3: TIER 1 trigger phrase
-    const cleanTitle = title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-    const categories = categorize(cleanTitle);
-    if (categories.length === 0) { triggerRejects++; continue; }
+      const m = line.match(/^"([^"]*)","([^"]*)",([^,]+),"([^"]*)",([^,]+),"([^"]+)"$/);
+      if (!m) { parseFails++; continue; }
+      const [, title, source, dateStr, url, _category, ticker] = m;
+      void _category;
+      const cleanTicker = ticker.trim().toUpperCase();
 
-    // FILTER 4: Exclusions
-    if (EXCLUSIONS.some(p => p.test(cleanTitle))) { exclusionRejects++; continue; }
+      // FILTER 1: Universe (S&P 500 + Nasdaq 100)
+      if (!UNIVERSE.has(cleanTicker)) { universeRejects++; continue; }
 
-    // Parse timestamp
-    const ts = new Date(dateStr.trim().replace(" ", "T") + "Z");
-    if (isNaN(ts.getTime())) continue;
+      // FILTER 2: Trusted source
+      const cleanSource = source.trim();
+      if (!TRUSTED_SOURCES.has(cleanSource)) { sourceRejects++; continue; }
 
-    const isHighImpact = detectHighImpact(cleanTitle, categories);
+      // FILTER 3: TIER 1 trigger phrase
+      const cleanTitle = title.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const categories = categorize(cleanTitle);
+      if (categories.length === 0) { triggerRejects++; continue; }
 
-    results.push({
-      id: `${cleanTicker}_${ts.getTime()}_${url}`,
-      ticker: cleanTicker,
-      title: cleanTitle,
-      source: cleanSource,
-      url: url.trim(),
-      timestamp: ts.toISOString(),
-      categories,
-      isHighImpact,
+      // FILTER 4: Exclusions
+      if (EXCLUSIONS.some(p => p.test(cleanTitle))) { exclusionRejects++; continue; }
+
+      // Parse timestamp
+      const ts = new Date(dateStr.trim().replace(" ", "T") + "Z");
+      if (isNaN(ts.getTime())) continue;
+
+      const isHighImpact = detectHighImpact(cleanTitle, categories);
+
+      results.push({
+        id: `${cleanTicker}_${ts.getTime()}_${url}`,
+        ticker: cleanTicker,
+        title: cleanTitle,
+        source: cleanSource,
+        url: url.trim(),
+        timestamp: ts.toISOString(),
+        categories,
+        isHighImpact,
+      });
+    }
+
+    // Deduplicate by URL (Finviz sometimes lists the same article under multiple tickers)
+    const seenUrls = new Set<string>();
+    const deduped = results.filter(r => {
+      if (seenUrls.has(r.url)) return false;
+      seenUrls.add(r.url);
+      return true;
     });
-  }
 
-  // Deduplicate by URL (Finviz sometimes lists the same article under multiple tickers)
-  const seenUrls = new Set<string>();
-  const deduped = results.filter(r => {
-    if (seenUrls.has(r.url)) return false;
-    seenUrls.add(r.url);
-    return true;
-  });
+    // Sort newest first
+    deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Sort newest first
-  deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const latency = Date.now() - t0;
+    console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
 
-  const latency = Date.now() - t0;
-  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
+    lastFetchAt = Date.now();
+    lastResults = deduped;
+    return deduped;
+  })().finally(() => { inflight = null; });
 
-  lastFetchAt = Date.now();
-  lastResults = deduped;
-  return deduped;
+  return inflight;
 }
 
 export function getLastResults(): ScreenedHeadline[] {

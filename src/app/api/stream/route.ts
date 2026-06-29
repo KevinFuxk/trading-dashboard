@@ -19,6 +19,9 @@ const HEARTBEAT_MS = 30_000;
 export async function GET() {
   const encoder = new TextEncoder();
 
+  // Shared reference so cancel() can reach start()'s cleanup closure
+  let cancelCleanup: (() => void) | null = null;
+
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
@@ -54,6 +57,7 @@ export async function GET() {
 
       // Poll Finviz every 5s
       timers.push(setInterval(async () => {
+        if (closed) return;   // skip Finviz HTTP call for zombie connections
         try {
           const fresh = await fetchScreenedHeadlines();
           const newOnes = diff(fresh);
@@ -74,11 +78,10 @@ export async function GET() {
         closed = true;
         timers.forEach(clearInterval);
       };
-      // The ReadableStream cancel handler runs cleanup; also expose via abort.
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
+      cancelCleanup = cleanup;
     },
     cancel() {
-      // close handled via the closed flag
+      cancelCleanup?.();
     },
   });
 
