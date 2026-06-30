@@ -191,8 +191,45 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
+    // Bulge-bracket — all move S&P 500 names materially on upgrade/downgrade
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA|BAML) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Deutsche Bank|Deutsche) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital Markets? )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bernstein|AllianceBernstein) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Noteworthy independents
+    /\b(?:TD Cowen|Cowen) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bEvercore (?:ISI )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWedbush (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+  ],
+  // Pre-announcements and profit warnings — among the highest-alpha single-stock events
+  pre_announcement: [
+    /\bprofit warning\b/i,
+    /\b(?:issues?|warns? (?:of|on)|reports?) (?:a )?(?:profit warning|revenue warning|earnings warning)\b/i,
+    /\bpre[- ]announces?\b/i,
+    /\blowers? (?:its )?(?:revenue|earnings|profit) (?:outlook|guidance|forecast) ahead of\b/i,
+    /\bexpects? (?:revenue|earnings|profit|results) (?:to fall|below|to miss)\b/i,
+    /\bpreliminary (?:results?|earnings) (?:show|indicate|reveal)\b/i,
+    /\bunexpected(?:ly)? (?:weak|soft|miss(?:es?)?|short(?:fall)?)\b/i,
+  ],
+  // Short-seller reports — named firms signal imminent severe drops
+  short_seller: [
+    /\bHindenburg Research\b/i,
+    /\bMuddy Waters (?:Research)?\b/i,
+    /\bCitron Research\b/i,
+    /\bCarson Block\b/i,
+    /\bGotham City Research\b/i,
+    /\bGlaucus Research\b/i,
+    /\bshort[- ]seller (?:report|targets?|attacks?|publishes?)\b/i,
+    /\bshort (?:report|thesis) (?:on|targeting)\b/i,
   ],
 };
 
@@ -281,6 +318,11 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Short-seller reports from named firms always trigger — these cause immediate severe drops
+  if (categories.includes("short_seller")) return true;
+  // Profit warnings are sudden and severe
+  if (categories.includes("pre_announcement") &&
+      /\bprofit warning\b|\bpre[- ]announces?\b|\blowers? (?:its )?(?:revenue|earnings) (?:outlook|guidance)\b/i.test(title)) return true;
   return false;
 }
 
