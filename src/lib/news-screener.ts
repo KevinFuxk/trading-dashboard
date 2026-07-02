@@ -193,6 +193,8 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBank of America (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -257,10 +259,13 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat or miss — any explicit signal for an S&P/NDX large-cap is chime-worthy.
+  // Previously this required "beats by X%" (rare Finviz format). Now we match the
+  // actual headline patterns Finviz uses: "beats estimates", "misses expectations", etc.
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const hasBeat = /\b(?:beats?|tops?|exceeds?) (?:earnings|estimates?|expectations?|consensus|street)\b|\bearnings beat\b|\brevenue (?:beat|topped|exceeded|jumps|surges)\b/i.test(title);
+    const hasMiss = /\b(?:misses?|falls? short|comes? short)(?: of)? (?:earnings|estimates?|expectations?|consensus|revenue)\b|\bearnings miss\b/i.test(title);
+    if (hasBeat || hasMiss) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +286,14 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Analyst upgrade or downgrade from tier-1 bank (already filtered to GS/JPM/MS/BofA)
+  if (categories.includes("analyst") && /\b(?:upgrades?|downgrades?)\b/i.test(title)) return true;
+  // Large buyback ($5B+) or dividend suspension/cut — major capital-return signal
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+    if (/\b(?:cuts?|suspends?|eliminates?) (?:its )?dividend\b/i.test(title)) return true;
+  }
   return false;
 }
 
