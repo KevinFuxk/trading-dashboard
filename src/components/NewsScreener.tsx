@@ -22,8 +22,10 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   regulatory: { label: "REGULATORY", color: "bg-amber-500/20   text-amber-300   border-amber-500/40"   },
   csuite:     { label: "C-SUITE",    color: "bg-purple-500/20  text-purple-300  border-purple-500/40"  },
   corporate:  { label: "CORPORATE",  color: "bg-blue-500/20    text-blue-300    border-blue-500/40"    },
-  contracts:  { label: "CONTRACT",   color: "bg-teal-500/20    text-teal-300    border-teal-500/40"    },
-  analyst:    { label: "ANALYST",    color: "bg-slate-500/20   text-slate-300   border-slate-500/40"   },
+  contracts:      { label: "CONTRACT",    color: "bg-teal-500/20    text-teal-300    border-teal-500/40"    },
+  analyst:        { label: "ANALYST",     color: "bg-slate-500/20   text-slate-300   border-slate-500/40"   },
+  capital_markets: { label: "DILUTION",   color: "bg-rose-500/20    text-rose-300    border-rose-500/40"    },
+  restructuring:  { label: "RESTRUC",    color: "bg-orange-500/20  text-orange-300  border-orange-500/40"  },
 };
 
 export function NewsScreener() {
