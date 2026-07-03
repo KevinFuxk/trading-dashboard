@@ -194,6 +194,28 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Dilutive capital events — reliably bearish for existing shareholders
+  capital_markets: [
+    /\b(?:secondary|follow-on) offering\b/i,
+    /\bprices? (?:a )?(?:public )?offering of/i,
+    /\bat-the-market (?:equity )?(?:offering|program)\b/i,
+    /\bprivate placement of (?:\$|\d)/i,
+    /\bconvertible (?:notes?|bonds?) offering\b/i,
+    /\bequity offering\b/i,
+    /\bregistered direct offering\b/i,
+    /\b\$\d+(?:\.\d+)?\s*(?:B|M|billion|million) (?:public |private |equity |convertible )?offering\b/i,
+  ],
+  // Headcount and cost restructuring — market-moving for S&P 500 names
+  restructuring: [
+    /\bto (?:lay off|layoff|let go) (?:approximately |about |roughly )?\d[\d,]* (?:jobs|employees|workers|positions)\b/i,
+    /\bwill (?:cut|eliminate|reduce|slash) [\d,]+ (?:jobs|employees|workers|positions)\b/i,
+    /\bannounces? (?:global )?(?:workforce|headcount) reduction\b/i,
+    /\b(?:cutting|eliminating) [\d,]+ (?:jobs|employees|positions)\b/i,
+    /\b(?:restructuring|reorganization) (?:charge|plan|initiative|program)\b/i,
+    /\breduces? (?:its )?workforce by \d+%/i,
+    /\bplans? to close (?:\d+ )?(?:its )?(?:factories|plants|facilities|offices)\b/i,
+    /\b[\d,]+-(?:employee|worker|job) (?:reduction|cut|layoff)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +269,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires is a top-tier financial wire (Finviz often labels it this way)
+  "Dow Jones Newswires", "Dow Jones",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -264,6 +288,9 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
+  // FDA rejection / CRL — biotech destroyer; equally volatile, usually larger move than approval
+  if (categories.includes("fda") &&
+      /\bcomplete response letter\b|\bFDA rejects?\b|\bapproval denied\b/i.test(title)) return true;
   // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
   if (categories.includes("ma")) {
     const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
@@ -279,6 +306,26 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — confirms outperformance, reprices forward multiples upward
+  if (categories.includes("guidance") &&
+      /\braises? (?:guidance|forecast|outlook|full[- ]year)/i.test(title)) return true;
+  // Large capital markets events — dilutive to existing shareholders
+  if (categories.includes("capital_markets")) {
+    const mB = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (mB && parseFloat(mB[1]) >= 0.5) return true;
+    const mM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:M|million)/i);
+    if (mM && parseFloat(mM[1]) >= 500) return true;
+    // Convertibles always move because of hedge-fund arbitrage pressure
+    if (/\bconvertible (?:notes?|bonds?)\b/i.test(title)) return true;
+  }
+  // Large-scale layoffs — macro signal; 1,000+ jobs cut at a mega-cap is always material
+  if (categories.includes("restructuring")) {
+    const mJobs = title.match(/(\d[\d,]*)\s*(?:jobs|employees|workers|positions)/i);
+    if (mJobs) {
+      const n = parseInt(mJobs[1].replace(/,/g, ""), 10);
+      if (n >= 1000) return true;
+    }
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
