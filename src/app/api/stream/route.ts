@@ -19,10 +19,22 @@ const HEARTBEAT_MS = 30_000;
 export async function GET() {
   const encoder = new TextEncoder();
 
+  // Hoisted so cancel() can reach the same function as the start() closure.
+  // Without this, cancel() is a no-op and intervals keep firing (burning
+  // Finviz quota) until the next failed enqueue finally sets closed=true.
+  let doCleanup: (() => void) | null = null;
+
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
       const timers: ReturnType<typeof setInterval>[] = [];
+
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        timers.forEach(clearInterval);
+      };
+      doCleanup = cleanup;
 
       // Per-connection seen set — avoids shared module state poisoning other tabs
       const seenIds = new Set<string>();
@@ -39,7 +51,7 @@ export async function GET() {
             encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
           );
         } catch {
-          closed = true;
+          cleanup();
         }
       }
 
@@ -68,17 +80,9 @@ export async function GET() {
 
       // Heartbeat
       timers.push(setInterval(() => send("heartbeat", { ts: Date.now() }), HEARTBEAT_MS));
-
-      // Cleanup on client disconnect
-      const cleanup = () => {
-        closed = true;
-        timers.forEach(clearInterval);
-      };
-      // The ReadableStream cancel handler runs cleanup; also expose via abort.
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
     },
     cancel() {
-      // close handled via the closed flag
+      doCleanup?.();
     },
   });
 
