@@ -257,10 +257,14 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat or miss — wire services (Reuters, Bloomberg, Business Wire) never
+  // include "by X%" in headlines; the old ≥10% regex matched virtually zero real
+  // headlines. Phrase-level detection fires on actual Finviz headline patterns.
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    if (/\b(?:beats?|tops?) (?:earnings|EPS|estimates?|expectations?|consensus|the street)\b/i.test(title)) return true;
+    if (/\brevenue (?:beat|topped|exceeded|surges?|jumps?)\b/i.test(title)) return true;
+    if (/\b(?:misses?|falls? short of|comes? short of) (?:earnings|EPS|estimates?|expectations?|consensus)\b/i.test(title)) return true;
+    if (/\bearnings (?:beat|miss)\b/i.test(title)) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
