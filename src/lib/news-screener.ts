@@ -120,6 +120,12 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // Pre-announcements / profit warnings — move stocks 10-30% before the official release
+    /\bpreliminary (?:results?|revenue|earnings|financial results?)\b/i,
+    /\bprofit warning\b/i,
+    /\bpre[- ]?announces? (?:results?|earnings|revenue|guidance)\b/i,
+    /\bprovides? (?:preliminary|early) (?:results?|revenue|guidance)\b/i,
+    /\bexpects? (?:revenue|earnings|results?) (?:to )?(?:miss|exceed|beat|top|fall short)/i,
   ],
   guidance: [
     /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
@@ -194,6 +200,20 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Credit-rating actions from the Big 3 — downgrades to junk are seismic;
+  // even outlook changes move spreads and equity prices materially.
+  credit: [
+    /\bMoody['']?s (?:upgrades?|downgrades?|cuts?|raises?|affirms?|lowers?|places?)\b/i,
+    /\bMoody['']?s.*\b(?:rating|outlook|credit|debt)\b/i,
+    /\bS&P (?:Global )?(?:upgrades?|downgrades?|cuts?|raises?|affirms?|lowers?|places?)\b.*\b(?:rating|outlook|credit|debt)\b/i,
+    /\bFitch (?:Ratings? )?(?:upgrades?|downgrades?|cuts?|raises?|affirms?|lowers?|places?)\b/i,
+    /\bcredit (?:rating|outlook) (?:upgraded?|downgraded?|cut|raised?|affirmed?)/i,
+    /\b(?:downgraded?|cut) to (?:junk|speculative grade|Ba\d|B\d|Caa\d|CCC|CC\b|D\b)/i,
+    /\bfalls? to junk\b/i,
+    /\bjunk status\b/i,
+    /\binvestment[- ]?grade (?:status|rating) (?:lost|stripped|removed)/i,
+    /\bnegative (?:credit )?(?:watch|outlook) (?:by|from) (?:Moody|S&P|Fitch)/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +267,9 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — high-frequency wire Finviz surfaces separately from WSJ;
+  // covers analyst calls, rating actions, and M&A before WSJ articles go up.
+  "Dow Jones Newswires", "Dow Jones",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -281,6 +304,17 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Credit downgrade to junk — extreme risk event for equity holders
+  if (categories.includes("credit") &&
+      /\b(?:downgraded?|cut|falls?)\b.*\bjunk\b|\bjunk\b.*\b(?:downgraded?|cut)\b/i.test(title)) return true;
+  // Goldman / JPMorgan upgrade to Buy or downgrade to Sell — rare, institutional-grade signal
+  if (categories.includes("analyst")) {
+    if (/\b(?:upgrades?|raised?) to (?:buy|strong buy|overweight|outperform)\b/i.test(title)) return true;
+    if (/\b(?:downgrades?|lowered?) to (?:sell|strong sell|underweight|underperform)\b/i.test(title)) return true;
+  }
+  // Earnings pre-announcement or profit warning — moves stock before official release
+  if (categories.includes("earnings") &&
+      /\bprofit warning\b|\bpre[- ]?announces?|\bpreliminary results?\b/i.test(title)) return true;
   return false;
 }
 
