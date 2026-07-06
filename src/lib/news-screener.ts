@@ -194,6 +194,23 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Dilutive share issuances — "prices offering" = done deal, immediate EPS dilution signal
+  offerings: [
+    /\bprices (?:(?:upsized|its) )?(?:public|secondary|follow-on) offering\b/i,
+    /\bannounces (?:public|secondary|follow-on) offering\b/i,
+    /\bcommences (?:public|secondary|follow-on) offering\b/i,
+    /\bpublic offering priced at \$[\d.]+\b/i,
+    /\bsells? \$[\d.]+ (?:billion|million) (?:in )?(?:shares?|common stock)\b/i,
+  ],
+  // Credit rating actions from major agencies — highly market-moving for equity & debt holders
+  credit: [
+    /\bMoody'?s (?:downgrades?|upgrades?|cuts? rating|raises? rating)\b/i,
+    /\bS&P (?:downgrades?|upgrades?|cuts? rating|raises? rating)\b/i,
+    /\bFitch (?:downgrades?|upgrades?|cuts? rating|raises? rating)\b/i,
+    /\bcredit rating (?:cut|downgraded|upgraded|raised|lowered)\b/i,
+    /\bdowngraded? to (?:junk|speculative[- ]grade|below investment grade)\b/i,
+    /\bcreditwatch (?:negative|positive)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -235,6 +252,9 @@ const EXCLUSIONS: RegExp[] = [
   /\bbiggest movers\b/i,
   /\b\d+ reasons? to\b/i,
   /\b(?:will|could) \w+ stock\b/i,
+  // Pre-event speculation — these match earnings triggers but contain no actual result
+  /\bearnings (?:preview|expectations?|whisper)\b/i,
+  /\bwhat (?:to expect|analysts? expect)\b/i,
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -281,6 +301,15 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Dilutive offering $1B+ — large-cap secondary at this size always moves
+  if (categories.includes("offerings")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
+  // Credit downgrade from major agency — direct catalyst for equity derating
+  if (categories.includes("credit") && /\b(?:Moody'?s|S&P|Fitch) (?:downgrades?|cuts?)\b/i.test(title)) return true;
+  // Junk/speculative downgrade — extreme signal, equity may gap down materially
+  if (categories.includes("credit") && /\bdowngraded? to (?:junk|speculative[- ]grade)\b/i.test(title)) return true;
   return false;
 }
 
@@ -382,7 +411,7 @@ export async function fetchScreenedHeadlines(): Promise<ScreenedHeadline[]> {
   deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const latency = Date.now() - t0;
-  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects}`);
+  console.log(`[SCREENER] ${deduped.length} TIER 1 / ${lines.length} total | ${latency}ms | rejects: uni=${universeRejects} src=${sourceRejects} trig=${triggerRejects} excl=${exclusionRejects} parse_fail=${parseFails}`);
 
   lastFetchAt = Date.now();
   lastResults = deduped;
