@@ -217,6 +217,11 @@ const EXCLUSIONS: RegExp[] = [
   /\bstocks? to watch (?:now|today)/i,
   /\bwhy (?:is )?\w+ (?:is )?(?:up|down|surging|falling|jumping|plunging)/i,
   /\bwhat investors should know/i,
+  /\bwhat (?:investors?|traders?) need to know\b/i,
+  /\bwhat to expect (?:from|when|as)\b/i,
+  /\bwhat (?:analysts?|Wall Street) (?:expects?|forecasts?)\b/i,
+  /\bearnings (?:season |call )?preview\b/i,
+  /\bpreview: .+(?:q[1-4]|quarterly|earnings)\b/i,
   /\bshould you buy\b/i,
   /\bis \w+ a (?:buy|sell|good buy|good investment)/i,
   /\bworth buying\b/i,
@@ -279,8 +284,27 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — upside revision to forward multiples, equally material on the bullish side
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Activist investor / 13D filing — almost always causes an immediate pop in the target
+  if (categories.includes("csuite") &&
+      /\b(?:activist (?:investor|stake|campaign|position)|13[Dd] (?:filing|stake)|13[Dd] filed)\b/i.test(title)) return true;
+  // Large contract win ($1B+) or DOD/Pentagon award — highly material for defense names
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+    if (/\b(?:Pentagon|DOD|U\.?S\.?\s+(?:Air Force|Navy|Army|Space Force|Marines?))\b/i.test(title)) return true;
+  }
+  // Large buyback ($5B+) — signals excess FCF and is reliably bullish
+  if (categories.includes("corporate")) {
+    const bm = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)\b/i);
+    if (bm && parseFloat(bm[1]) >= 5) return true;
+    // Dividend cut or suspension — financial stress signal, reliably bearish
+    if (/\b(?:cuts?|reduces?|slashes?|suspends?|eliminates?) (?:its )?dividend\b/i.test(title)) return true;
+  }
   return false;
 }
 
