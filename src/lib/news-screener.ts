@@ -110,24 +110,37 @@ export async function loadUniverse(): Promise<Set<string>> {
 
 const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   earnings: [
-    /\bbeats? (?:earnings|estimates|expectations|consensus|street)/i,
-    /\btops? (?:earnings|estimates|expectations|consensus)/i,
+    /\bbeats? (?:earnings|estimates|expectations|consensus|street|eps)/i,
+    // NEW: "beats Q2 estimates", "tops fiscal Q3 EPS" — Finviz inserts quarter labels
+    /\bbeats? q[1-4] (?:earnings|estimates|expectations|eps|revenue)/i,
+    /\btops? q[1-4] (?:earnings|estimates|expectations|eps|revenue)/i,
+    /\bbeats? (?:fiscal|full[- ]year) (?:earnings|estimates|expectations)/i,
+    /\btops? (?:earnings|estimates|expectations|consensus|eps)/i,
     /\b(?:q[1-4]|quarterly|fy ?\d+) (?:earnings|results|revenue|report)/i,
     /\bEPS of \$[\d.]+/i,
+    /\badjusted EPS of \$[\d.]+/i,
+    /\bEPS (?:beats?|tops?|misses?)/i,
     /\bearnings beat/i,
     /\brevenue (?:beat|topped|exceeded|jumps|surges)/i,
     /\bmisses? (?:earnings|estimates|expectations|consensus)/i,
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // NEW: strong-beat language common in wire headlines
+    /\b(?:crushes?|smashes?) (?:earnings|estimates|expectations)/i,
+    /\bblowout (?:earnings|quarter|results)/i,
+    /\bwell above (?:estimates|expectations|consensus)/i,
   ],
   guidance: [
-    /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
-    /\b(?:lifts?|boosts?|hikes?) (?:guidance|forecast|outlook)/i,
-    /\b(?:cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)/i,
-    /\bwithdraws? (?:guidance|forecast|outlook)/i,
+    /\braises? (?:its )?(?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
+    /\b(?:lifts?|boosts?|hikes?) (?:its )?(?:guidance|forecast|outlook)/i,
+    /\b(?:cuts?|lowers?|slashes?|trims?) (?:its )?(?:guidance|forecast|outlook)/i,
+    /\bwithdraws? (?:its )?(?:guidance|forecast|outlook)/i,
     /\breaffirms? (?:guidance|outlook)/i,
     /\bguides? (?:above|below) (?:consensus|estimates)/i,
+    // NEW: "raises full-year outlook", "cuts annual forecast" — common wire phrasing
+    /\braises? (?:annual|full[- ]year|fy) (?:outlook|forecast|guidance)/i,
+    /\b(?:cuts?|lowers?) (?:annual|full[- ]year|fy) (?:outlook|forecast|guidance)/i,
   ],
   ma: [
     /\bto acquire\b/i,
@@ -247,6 +260,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — WSJ's real-time sister wire; appears separately in Finviz CSV
+  "Dow Jones Newswires", "Dow Jones",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -257,11 +272,22 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
   if (categories.includes("earnings")) {
+    // Strong-language beats: always high-impact for index members from trusted sources
+    if (/\b(?:crushes?|smashes?)\b/i.test(title)) return true;
+    if (/\bblowout\b/i.test(title)) return true;
+    if (/\bwell above\b/i.test(title)) return true;
+    // "posts record revenue/earnings/profit" — top-line record for a mega-cap = high-impact
+    if (/\bposts? record (?:revenue|earnings|profit|quarter)\b/i.test(title)) return true;
+    // Significant miss is also a market mover (stock drops)
+    if (/\b(?:significantly|widely|sharply) misses?\b/i.test(title)) return true;
+    // Explicit percentage beat ≥10% (original gate, kept as a supplemental trigger)
     const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
     if (m && parseInt(m[1]) >= 10) return true;
   }
+  // Earnings + guidance both present means the headline has an earnings result AND a
+  // guidance update (e.g. "beats Q2, raises FY outlook") — the most bullish combo.
+  if (categories.includes("earnings") && categories.includes("guidance")) return true;
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
   // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
