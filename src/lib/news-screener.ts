@@ -191,8 +191,26 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Named-broker patterns (broker-first headline format)
+    /\b(?:Goldman Sachs?|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA|BofA Securities) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Citigroup|Citi) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital (?:Markets? )?)?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bEvercore(?:\s+ISI)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Price-target moves (broker-agnostic — the action itself is the signal)
+    /\braises? (?:its )?(?:price )?target (?:to|on|for) /i,
+    /\b(?:cuts?|lowers?) (?:its )?(?:price )?target (?:to|on|for) /i,
+    // Initiates coverage (newsworthy standalone catalyst)
+    /\binitiates? (?:coverage(?: of)? )?(?:at|with) (?:buy|sell|neutral|overweight|underweight|outperform|underperform)\b/i,
+    // Reverse-format headlines: "TICKER upgraded to Buy at Broker"
+    /\b(?:upgraded?|downgraded?) to (?:buy|sell|neutral|overweight|underweight|outperform|underperform) at (?:Goldman|Morgan Stanley|JPMorgan|J\.?P\.?\s*Morgan|BofA|Citi|UBS|Barclays|Deutsche|Wells Fargo|RBC|Jefferies|Evercore)\b/i,
   ],
 };
 
@@ -257,10 +275,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10% — misses often cause larger moves than beats
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +301,11 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Large buyback (≥$3B) — material capital-return signal for S&P 500 names
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 3) return true;
+  }
   return false;
 }
 
