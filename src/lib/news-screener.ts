@@ -120,6 +120,11 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // Pre-announcements — come before official reports, often cause larger moves
+    /\bpre-?announces? (?:preliminary )?(?:q[1-4]|quarterly|annual|fy\s*\d*) (?:results?|revenue|earnings|net income)/i,
+    /\bpreliminary (?:q[1-4]|first|second|third|fourth)[- ]quarter (?:results?|revenue|earnings|net income)/i,
+    /\bprovides? preliminary (?:financial )?results?\b/i,
+    /\breport(?:s|ed)? preliminary (?:revenue|earnings|net income)\b/i,
   ],
   guidance: [
     /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
@@ -128,6 +133,12 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bwithdraws? (?:guidance|forecast|outlook)/i,
     /\breaffirms? (?:guidance|outlook)/i,
     /\bguides? (?:above|below) (?:consensus|estimates)/i,
+    // Profit warnings — standard term for an unscheduled downward guidance revision
+    /\bprofit warning\b/i,
+    /\brevenue warning\b/i,
+    /\bpre-?announces? (?:earnings|revenue|guidance) (?:miss|shortfall|below)/i,
+    /\btemporarily (?:suspends?|withdraws?) guidance\b/i,
+    /\bno longer (?:provides?|reaffirms?) (?:guidance|outlook|forecast)\b/i,
   ],
   ma: [
     /\bto acquire\b/i,
@@ -281,6 +292,18 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Contract win > $1B — material revenue event for the winner
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
+  // Share buyback > $1B — strong FCF signal + near-term support for the stock
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:share |stock )?(?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
+  // Profit / revenue warning — unscheduled, unpriced-in, typically 10-30% mover
+  if (categories.includes("guidance") && /\b(?:profit|revenue) warning\b/i.test(title)) return true;
   return false;
 }
 
