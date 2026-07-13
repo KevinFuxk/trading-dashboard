@@ -108,6 +108,42 @@ export async function loadUniverse(): Promise<Set<string>> {
 //  Each category maps to regexes that catch real catalyst headlines.
 // ════════════════════════════════════════════════════════════════
 
+// All major sell-side banks whose ratings/PTs move stocks. Built once at
+// module load so the hot path is just a single regex test per headline.
+const _ANALYST_BANKS_RE = new RegExp(
+  String.raw`\b(?:` +
+  [
+    "Goldman Sachs", "Goldman",
+    "J\\.?P\\.?\\s*Morgan", "JPMorgan",
+    "Morgan Stanley",
+    "Bank of America", "BofA", "Merrill Lynch", "Merrill",
+    "Citigroup", "Citi",
+    "Wells Fargo",
+    "Deutsche Bank",
+    "UBS",
+    "Barclays",
+    "RBC Capital", "RBC",
+    "Jefferies",
+    "Piper Sandler",
+    "Needham",
+    "KeyBanc",
+    "BMO Capital", "BMO",
+    "Raymond James",
+    "Truist",
+    "Wolfe Research",
+    "Bernstein",
+    "TD Cowen", "TD Securities",
+    "Oppenheimer",
+    "Canaccord",
+    "William Blair",
+    "Stifel",
+    "Baird",
+  ].join("|") +
+  String.raw`)` +
+  String.raw`\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?|starts?\s+coverage)`,
+  "i"
+);
+
 const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   earnings: [
     /\bbeats? (?:earnings|estimates|expectations|consensus|street)/i,
@@ -191,8 +227,8 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // All major sell-side banks — upgrades, downgrades, initiations, PT changes
+    _ANALYST_BANKS_RE,
   ],
 };
 
@@ -247,6 +283,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires is a major Finviz source label (WSJ/Barron's feeds)
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -279,8 +317,24 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — positive catalyst equally material for forward multiples
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year)\b/i.test(title)) return true;
+  // Activist investor / 13D — near-certain proxy or strategic catalyst
+  if (categories.includes("csuite") &&
+      /\b(?:13D filing|activist (?:investor|stake|campaign)|proxy fight)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Large buyback ($5B+) — material capital return that re-rates the stock
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
+  // Large contract win ($1B+) — material forward revenue event
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
   return false;
 }
 
