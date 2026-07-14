@@ -19,6 +19,11 @@ const HEARTBEAT_MS = 30_000;
 export async function GET() {
   const encoder = new TextEncoder();
 
+  // Shared cleanup handle — hoisted so both start() and cancel() can reach it.
+  // Without this, cancelling the stream (client disconnect) never clears the
+  // setInterval timers, leaving 2 dangling intervals per disconnected client.
+  let cleanup: (() => void) | null = null;
+
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
@@ -42,6 +47,11 @@ export async function GET() {
           closed = true;
         }
       }
+
+      cleanup = () => {
+        closed = true;
+        timers.forEach(clearInterval);
+      };
 
       // Initial fetch — push everything we have
       try {
@@ -68,17 +78,11 @@ export async function GET() {
 
       // Heartbeat
       timers.push(setInterval(() => send("heartbeat", { ts: Date.now() }), HEARTBEAT_MS));
-
-      // Cleanup on client disconnect
-      const cleanup = () => {
-        closed = true;
-        timers.forEach(clearInterval);
-      };
-      // The ReadableStream cancel handler runs cleanup; also expose via abort.
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
     },
     cancel() {
-      // close handled via the closed flag
+      // Client disconnected — clear all intervals immediately so we stop
+      // polling Finviz for a gone connection.
+      cleanup?.();
     },
   });
 
