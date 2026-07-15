@@ -244,8 +244,13 @@ const EXCLUSIONS: RegExp[] = [
 
 const TRUSTED_SOURCES = new Set<string>([
   // Tier A — real journalism
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
-  "Barron's", "Financial Times", "FT", "MarketWatch",
+  "Reuters", "Bloomberg", "Bloomberg News",
+  "Wall Street Journal", "WSJ", "The Wall Street Journal",
+  "Dow Jones", "Dow Jones Newswires",           // Finviz label for DJ wire (same quality as WSJ)
+  "CNBC", "CNBC.com",
+  "Barron's",
+  "Financial Times", "FT",
+  "MarketWatch",
   "AP", "Associated Press", "AP News",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
@@ -273,12 +278,20 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Bankruptcy — extreme market mover for equity holders
   if (categories.includes("regulatory") &&
       /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // DOJ/SEC criminal charges or major antitrust block — material legal risk
+  if (categories.includes("regulatory") &&
+      /\bDOJ (?:charges?|indicts?|criminal|sues)\b|\bSEC charges?\b|\bFTC blocks?\b|\bantitrust ruling\b/i.test(title)) return true;
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — clear capital return signal, typically 2-4% pop
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase|share repurchase)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
