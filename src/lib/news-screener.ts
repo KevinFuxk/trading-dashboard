@@ -194,6 +194,26 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  // Secondary/follow-on offerings and convertible deals are immediate dilution catalysts
+  // that reliably move S&P 500 names 2-8% at open — previously invisible to the screener.
+  offering: [
+    /\b(?:prices?|launches?|announces?|completes?) (?:a )?(?:secondary|follow[- ]on|additional) (?:public )?offering/i,
+    /\b(?:prices?|launches?) (?:a )?\$[\d.]+\s*(?:B|billion|M|million) (?:in )?(?:shares?|stock|equity) offering/i,
+    /\bconvertible (?:senior )?notes? offering\b/i,
+    /\bat[- ]the[- ]market (?:equity )?offering\b/i,
+    /\bATM (?:equity )?offering\b/i,
+    /\bprices? (?:public )?offering of \d/i,
+  ],
+  // Profit warnings and below-consensus preannouncements — often bigger moves than the
+  // actual earnings release, and previously uncaught by the earnings/guidance categories.
+  warning: [
+    /\bprofit warning\b/i,
+    /\b(?:pre[- ]?announces?|preannounces?) (?:lower|weaker|disappointing|below|miss)/i,
+    /\bwarns? (?:of )?(?:lower|weaker|disappointing|below[- ]consensus) (?:earnings|revenue|results|sales|profit)/i,
+    /\bpreliminary (?:results|earnings|revenue) (?:below|miss|disappoint)/i,
+    /\bexpects? (?:revenue|earnings|EPS|results) (?:to )?(?:be )?(?:below|short of) (?:consensus|estimates|expectations|prior guidance)/i,
+    /\blowers? (?:annual|full[- ]year|fy\d*) (?:guidance|revenue|earnings|EPS) (?:outlook|forecast|estimate)?/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -247,6 +267,7 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  "Dow Jones Newswires", "Dow Jones",   // feeds WSJ; appears in Finviz as its own source
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -259,8 +280,11 @@ const TRUSTED_SOURCES = new Set<string>([
 function detectHighImpact(title: string, categories: string[]): boolean {
   // Earnings beat by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    // Earnings miss by ≥10% is equally high-impact (often bigger move than a beat)
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +305,18 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Profit warning — typically bigger same-day move than the actual earnings release
+  if (categories.includes("warning")) return true;
+  // Large buyback ≥$5B — signals management conviction + supports the float
+  if (categories.includes("corporate")) {
+    const bM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase)/i);
+    if (bM && parseFloat(bM[1]) >= 5) return true;
+  }
+  // Large dilutive offering ≥$1B — material equity dilution for shareholders
+  if (categories.includes("offering")) {
+    const oM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (oM && parseFloat(oM[1]) >= 1) return true;
+  }
   return false;
 }
 
