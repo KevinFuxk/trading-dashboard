@@ -194,6 +194,25 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  credit: [
+    /\bMoody['']?s (?:downgrades?|upgrades?|cuts?|places?|affirms?)\b/i,
+    /\bS&P(?: Global(?:\s+Ratings?)?)? (?:downgrades?|upgrades?|cuts?|places?|affirms?)\b/i,
+    /\bFitch (?:downgrades?|upgrades?|cuts?|places?|affirms?)\b/i,
+    /\bcredit (?:watch|outlook)(?: (?:negative|positive|evolving|stable))?\b/i,
+    /\bdowngraded? to (?:junk|speculative[- ]grade|non-investment[- ]grade)\b/i,
+    /\bfallen angel\b/i,
+    /\bdebt rating (?:cut|downgrade|upgrade)\b/i,
+  ],
+  shortreport: [
+    /\bHindenburg Research\b/i,
+    /\bCitron Research\b/i,
+    /\bMuddy Waters\b/i,
+    /\bGotham City Research\b/i,
+    /\bCulper Research\b/i,
+    /\bGlaucus Research\b/i,
+    /\bshort[- ]seller (?:report|research|targets?|accuses?|claims?)\b/i,
+    /\bshort (?:report|attack|thesis) (?:accuses?|targets?|claims?|alleges?|surfaces?)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -281,6 +300,11 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Fallen-angel downgrade (investment-grade → junk) — triggers forced selling by IG-mandated funds
+  if (categories.includes("credit") &&
+      /\bdowngraded? to (?:junk|speculative[- ]grade|non-investment[- ]grade)\b|fallen angel\b/i.test(title)) return true;
+  // Named short-seller research firm — historically causes 20–60% immediate gap-downs
+  if (categories.includes("shortreport")) return true;
   return false;
 }
 
