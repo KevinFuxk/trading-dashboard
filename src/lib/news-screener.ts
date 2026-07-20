@@ -154,12 +154,18 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   ],
   regulatory: [
     /\bSEC charges?\b/,
+    /\bSEC (?:investigat(?:ion|ing)|subpoena|formal (?:probe|investigation))/i,
     /\bDOJ (?:probe|investigation|charges|sues)/,
     /\bFTC (?:blocks?|sues|investigation)/,
     /\bantitrust (?:lawsuit|probe|ruling|approval)/i,
     /\bChapter 11\b/,
     /\bfile[sd]? for bankruptcy/i,
     /\bvoluntar(?:y|ily) bankruptcy/i,
+    /\b(?:restates?|restatement) (?:financial|earnings|results|revenue|prior)/i,
+    /\bgoing[- ]concern\b/i,
+    /\bdelisting (?:notice|warning|proceedings?)\b/i,
+    /\b(?:NYSE|Nasdaq) (?:sent?|issued?) (?:a )?delisting\b/i,
+    /\bWells notice\b/i,
   ],
   csuite: [
     /\bCEO (?:resigns?|steps? down|departs?|fired|out|to step down)/i,
@@ -257,10 +263,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beat = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beat && parseInt(beat[1]) >= 10) return true;
+    const miss = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (miss && parseInt(miss[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -270,9 +278,12 @@ function detectHighImpact(title: string, categories: string[]): boolean {
     if (m && parseFloat(m[1]) >= 1) return true;
     if (/\b(?:hostile (?:bid|takeover)|tender offer)\b/i.test(title)) return true;
   }
-  // Bankruptcy — extreme market mover for equity holders
-  if (categories.includes("regulatory") &&
-      /\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+  // Bankruptcy, restatement, going-concern — extreme equity risk events
+  if (categories.includes("regulatory")) {
+    if (/\bChapter 11\b|\bfile[sd]? for bankruptcy\b|\bvoluntar(?:y|ily) bankruptcy\b/i.test(title)) return true;
+    if (/\b(?:restates?|restatement) (?:financial|earnings|results|revenue|prior)\b/i.test(title)) return true;
+    if (/\bgoing[- ]concern\b/i.test(title)) return true;
+  }
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
