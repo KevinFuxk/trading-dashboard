@@ -191,8 +191,27 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Bulge-bracket / Tier 1 — highest tape-moving research desks
+    /\b(?:Goldman Sachs?|Goldman|JPMorgan|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA) (?:upgrades?|downgrades?|raises?|lowers?|cuts?|initiates?|reiterates?)/i,
+    // Major mid-tier banks
+    /\b(?:Citigroup|Citi|UBS|Wells Fargo|Jefferies|Barclays|Deutsche Bank|TD Cowen|Cowen) (?:upgrades?|downgrades?|raises?|lowers?|cuts?|initiates?|reiterates?)/i,
+    // Active-coverage boutiques with meaningful institutional following
+    /\b(?:RBC Capital|BMO Capital|Mizuho|Evercore|Piper Sandler|KeyBanc|Stifel|Oppenheimer|Needham|William Blair|Canaccord) (?:upgrades?|downgrades?|raises?|lowers?|cuts?|initiates?|reiterates?)/i,
+  ],
+  // Short-seller attacks — often cause 10-30% single-day declines
+  short: [
+    /\bshort[- ]seller (?:report|targets?|attack|publishes)/i,
+    /\b(?:Hindenburg|Muddy Waters|Citron|Gotham City|Spruce Point|Bleecker Street|Grizzly|J Capital|Viceroy|Nino|Iceberg) (?:Research )?(?:targets?|report|short|publishes)/i,
+    /\bshort (?:report|attack) (?:published|released|out)\b/i,
+    /\bactivist short (?:position|report)\b/i,
+    /\bnew short (?:report|position) (?:against|in|on)\b/i,
+  ],
+  // Credit-rating changes — especially fallen-angel downgrades move equity vol
+  credit: [
+    /\b(?:Moody'?s|S&P|Standard & Poor'?s|Fitch) (?:downgrades?|upgrades?|cuts? (?:rating|outlook)|raises? (?:rating|outlook)|changes? outlook)/i,
+    /\bcredit (?:rating )?(?:downgrade|upgrade|cut|raised)\b/i,
+    /\b(?:downgraded?|upgraded?) to (?:junk|speculative[- ]grade|investment[- ]grade)\b/i,
+    /\bfallen angel\b/i,
   ],
 };
 
@@ -247,9 +266,12 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  "Dow Jones Newswires", "Dow Jones",   // parent wire service of WSJ
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
+  // Tier C — specialist financial news wires (fast analyst-action coverage)
+  "The Fly", "Fly On The Wall",         // primary Finviz source for upgrades/downgrades
 ]);
 
 // ════════════════════════════════════════════════════════════════
@@ -281,6 +303,16 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Short-seller attacks — nearly always cause immediate large declines
+  if (categories.includes("short")) return true;
+  // Credit downgrade to junk (fallen-angel) — triggers forced-seller cascade
+  if (categories.includes("credit") &&
+      /\bjunk\b|\bspeculative[- ]grade\b|\bfallen angel\b/i.test(title)) return true;
+  // Large buyback ($5B+) — meaningful capital return signal
+  if (categories.includes("corporate")) {
+    const bm = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (bm && parseFloat(bm[1]) >= 5) return true;
+  }
   return false;
 }
 
