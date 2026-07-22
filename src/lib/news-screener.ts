@@ -120,6 +120,12 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)/i,
     /\bearnings miss/i,
     /\bposts? (?:record|strong|weak) (?:earnings|results|revenue)/i,
+    // Pre-announcement / profit warning — extreme movers before earnings week
+    /\bprofit (?:warning|alert)\b/i,
+    /\bwarns? (?:of )?(?:lower|weaker|softer) (?:earnings|revenue|profit|results)\b/i,
+    /\bpre[- ]?announces? (?:earnings|results|revenue|profit)\b/i,
+    /\bpreliminary (?:earnings|revenue|results)\b/i,
+    /\bissues? (?:earnings|revenue|profit) (?:warning|alert)\b/i,
   ],
   guidance: [
     /\braises? (?:guidance|forecast|outlook|full[- ]year|fy ?\d+)/i,
@@ -247,6 +253,8 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Dow Jones Newswires — fast institutional wire, distinct source tag from WSJ
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -262,6 +270,12 @@ function detectHighImpact(title: string, categories: string[]): boolean {
     const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
     if (m && parseInt(m[1]) >= 10) return true;
   }
+  // Earnings miss — any miss from S&P 500 / NDX is high-impact; stocks drop sharply
+  if (categories.includes("earnings") &&
+      /\bmisses? (?:earnings|estimates|expectations|consensus)\b|\b(?:falls?|comes?) short of (?:earnings|estimates|expectations)\b|\bearnings miss\b/i.test(title)) return true;
+  // Profit warning / pre-announcement of weaker results — extreme movers
+  if (categories.includes("earnings") &&
+      /\bprofit (?:warning|alert)\b|\bwarns? (?:of )?(?:lower|weaker|softer)|\bpre[- ]?announces?\b/i.test(title)) return true;
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
   // M&A: $1B+ deal OR hostile bid/tender offer (no $ needed — these always move)
