@@ -191,8 +191,18 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?|starts?)/i,
+    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?|starts?)/i,
+  ],
+  // Credit rating actions: Moody's, S&P, Fitch — always move equity prices
+  credit: [
+    /\bMoody'?s (?:downgrades?|upgrades?|places? on (?:review|watch)|cuts? rating|affirms?)/i,
+    /\b(?:S&P|Standard\s*&\s*Poor'?s?) (?:downgrades?|upgrades?|places? on (?:watch|creditwatch)|cuts? rating)/i,
+    /\bFitch (?:downgrades?|upgrades?|places? on (?:review|watch)|affirms?)/i,
+    /\bdowngraded? to (?:junk|speculative[- ]grade|below[- ]investment[- ]grade|Ba[1-3]|B[1-3]|Caa)/i,
+    /\bupgraded? to (?:investment[- ]grade|Baa[1-3]|A[1-3])/i,
+    /\bcredit (?:rating|outlook) (?:cut|downgraded?|upgraded?|lowered?|raised?)/i,
+    /\bplaced? on (?:negative|positive) (?:watch|outlook|review)/i,
   ],
 };
 
@@ -281,6 +291,12 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Credit rating actions on S&P 500 names are always material for equity holders
+  if (categories.includes("credit") &&
+      /\b(?:Moody'?s|S&P|Standard\s*&\s*Poor'?s?|Fitch)\b/.test(title)) return true;
+  // Analyst conviction calls (Goldman/JPM specifically) — these move markets at open
+  if (categories.includes("analyst") &&
+      /\bconviction (?:buy|sell)\b/i.test(title)) return true;
   return false;
 }
 
