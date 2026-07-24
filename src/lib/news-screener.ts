@@ -191,8 +191,59 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Goldman Sachs?|Goldman)\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bJ\.?P\.?\s*Morgan\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bMorgan Stanley\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?|reiterates?)/i,
+    /\bBank of America\b[^.]*(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBofA\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMerrill Lynch\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group|bank)?\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBernstein\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital|Markets)\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bPiper Sandler\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWedbush\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bKeyBanc\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bStifel\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTD\s+(?:Cowen|Securities)\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCredit Suisse\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bHSBC\s+(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bSocGen\b.*?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+  ],
+
+  // Capital raises / secondary offerings — highly dilutive, often gap stock 5-15% down
+  offering: [
+    /\bsecondary (?:stock |share |equity )?offering\b/i,
+    /\bfollow[- ]on (?:offering|equity offering)\b/i,
+    /\bpublic offering of (?:common stock|shares?)\b/i,
+    /\bprices? (?:public )?offering of\b/i,
+    /\bATM (?:offering|program|equity program)\b/i,
+    /\bat[- ]the[- ]market (?:offering|equity program)\b/i,
+    /\bconvertible (?:notes?|bonds?|debt) offering\b/i,
+    /\braises? \$[\d.]+\s*(?:M|million|B|billion) (?:in|through|via) (?:public|secondary|follow)/i,
+    /\bpriced? \$[\d.]+\s*(?:M|million|B|billion) (?:in (?:senior |convertible )?notes?|offering)\b/i,
+  ],
+
+  // Short seller reports — Hindenburg/Citron/etc. routinely drop stocks 20-50%
+  shortSeller: [
+    /\bHindenburg Research\b/i,
+    /\bCitron Research\b/i,
+    /\bMuddy Waters\b/i,
+    /\bGlaucus Research\b/i,
+    /\bGotham City Research\b/i,
+    /\bBlue Orca (?:Capital|Research)\b/i,
+    /\bGrizzly Research\b/i,
+    /\bQCM Research\b/i,
+    /\bshort[- ]seller (?:report|alleges?|targets?|claims?|calls?)\b/i,
+    /\bshort[- ]selling (?:firm|researcher?|report)\b/i,
+    /\baccuses? .{3,40} of (?:fraud|accounting fraud|fabricat)/i,
+    /\bfraud (?:report|allegations?) (?:against|targeting)\b/i,
   ],
 };
 
@@ -281,6 +332,20 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Short seller reports — always high impact (20-50% gap risk)
+  if (categories.includes("shortSeller")) return true;
+  // Large secondary offerings ($500M+) — material dilution
+  if (categories.includes("offering")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (m && parseFloat(m[1]) >= 0.5) return true;
+    const mm = title.match(/\$(\d+(?:\.\d+)?)\s*(?:M|million)/i);
+    if (mm && parseFloat(mm[1]) >= 500) return true;
+  }
+  // Large buybacks ($3B+) — major shareholder return signal
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion) (?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 3) return true;
+  }
   return false;
 }
 
