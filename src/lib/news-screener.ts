@@ -191,8 +191,19 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Tier 1 sell-side — all regularly move S&P 500 names 3–8% on calls
+    /\b(?:Goldman Sachs?|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:JPMorgan|J\.?P\.?\s*Morgan) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBank of America (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRBC (?:Capital )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -279,6 +290,19 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // Guidance withdrawal or cut — major uncertainty signal for forward multiples
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — positive re-rating catalyst for forward multiples
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?) (?:guidance|forecast|full[- ]year|fy\s?\d+)/i.test(title)) return true;
+  // Analyst upgrade to bullish conviction OR downgrade to bearish — moves S&P 500 names 3–8%
+  if (categories.includes("analyst")) {
+    if (/\b(?:upgrades?|initiates?).{0,80}\b(?:buy|outperform|overweight|strong buy|top pick|conviction buy)\b/i.test(title)) return true;
+    if (/\bdowngrades?.{0,80}\b(?:sell|underperform|underweight|reduce|avoid)\b/i.test(title)) return true;
+  }
+  // Large buyback ($5B+) — cash return at scale signals strong balance sheet conviction
+  if (categories.includes("corporate")) {
+    const buybackM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase|share repurchase)/i);
+    if (buybackM && parseFloat(buybackM[1]) >= 5) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
