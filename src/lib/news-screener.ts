@@ -193,6 +193,17 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Tier-1 sell-side — all regularly move S&P/NDX names materially
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA|Merrill Lynch) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Citi(?:group)?|Citibank) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bWells Fargo (?:Securities )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:RBC Capital|RBC) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -276,9 +287,17 @@ function detectHighImpact(title: string, categories: string[]): boolean {
   // CEO departure (solo) — always material for S&P 500 names
   if (categories.includes("csuite") &&
       /\bCEO (?:resigns?|steps? down|departs?|fired|out\b|to step down)\b/i.test(title)) return true;
-  // Guidance withdrawal or cut — major uncertainty signal for forward multiples
+  // Guidance cut or withdrawal — uncertainty signal
   if (categories.includes("guidance") &&
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
+  // Guidance raise — equal or greater mover than a cut; beats consensus is bullish catalyst
+  if (categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?|increases?) (?:guidance|forecast|outlook|full[- ]year)\b/i.test(title)) return true;
+  // Large buyback ($2B+) — material capital return signal
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 2) return true;
+  }
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
   return false;
