@@ -257,10 +257,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10% — symmetric: a 10%+ miss is as seismic as a beat
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +283,8 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Activist investor 13D/13G disclosure — a new activist stake in S&P 500 causes 5–15% gaps
+  if (categories.includes("csuite") && /\b13[DG] filing\b|\bactivist (?:investor|stake|campaign)\b/i.test(title)) return true;
   return false;
 }
 
