@@ -19,6 +19,9 @@ const HEARTBEAT_MS = 30_000;
 export async function GET() {
   const encoder = new TextEncoder();
 
+  // Hoisted so cancel() can reach the cleanup defined inside start().
+  let cancelFn: (() => void) | undefined;
+
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
@@ -42,6 +45,12 @@ export async function GET() {
           closed = true;
         }
       }
+
+      function cleanup() {
+        closed = true;
+        timers.forEach(clearInterval);
+      }
+      cancelFn = cleanup;
 
       // Initial fetch — push everything we have
       try {
@@ -68,17 +77,9 @@ export async function GET() {
 
       // Heartbeat
       timers.push(setInterval(() => send("heartbeat", { ts: Date.now() }), HEARTBEAT_MS));
-
-      // Cleanup on client disconnect
-      const cleanup = () => {
-        closed = true;
-        timers.forEach(clearInterval);
-      };
-      // The ReadableStream cancel handler runs cleanup; also expose via abort.
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
     },
     cancel() {
-      // close handled via the closed flag
+      cancelFn?.();
     },
   });
 
