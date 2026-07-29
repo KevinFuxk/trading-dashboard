@@ -191,8 +191,22 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
+    // Tier A banks — largest price-move impact on S&P/NDX names
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Citigroup|Citi(?:bank)?) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Tier B banks — frequent movers on mid/large-caps
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBernstein (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:RBC Capital|RBC) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bTruist (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
 };
 
@@ -247,6 +261,9 @@ const TRUSTED_SOURCES = new Set<string>([
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "CNBC",
   "Barron's", "Financial Times", "FT", "MarketWatch",
   "AP", "Associated Press", "AP News",
+  // Tier A+ — Dow Jones wire (breaks news first, powers WSJ real-time; appears
+  // separately in Finviz CSV when Newswires publishes before the full WSJ piece)
+  "Dow Jones", "Dow Jones Newswires",
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
@@ -281,6 +298,25 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Analyst: Sell/Underperform rating from Tier A bank — causes 3-7% gap on open
+  if (categories.includes("analyst")) {
+    const tierA = /\b(?:Goldman Sachs|Goldman|JPMorgan|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citigroup|Citi)\b/i;
+    if (tierA.test(title)) {
+      if (/\b(?:sell|strong sell|underperform|underweight)\b/i.test(title)) return true;
+      // Initiation from Tier A (Buy or Sell) — sets a new institutional baseline
+      if (/\binitiates?\b/i.test(title)) return true;
+    }
+  }
+  // Large buyback ($5B+) — management conviction, often causes 2-4% pop
+  if (categories.includes("corporate")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (m && parseFloat(m[1]) >= 5) return true;
+  }
+  // Mega government/defense contract ($2B+) — material for aerospace/defense names
+  if (categories.includes("contracts")) {
+    const m = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:contract|deal|order)/i);
+    if (m && parseFloat(m[1]) >= 2) return true;
+  }
   return false;
 }
 
