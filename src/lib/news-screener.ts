@@ -194,6 +194,16 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
   ],
+  restatement: [
+    /\brestate[sd]? (?:its )?(?:earnings|financials|results|revenue|accounts?)\b/i,
+    /\baccounting (?:restatement|irregularit|error)\b/i,
+    /\bmaterial weakness\b/i,
+    /\bgoing[ -]concern\b/i,
+    /\baudit(?:or)? (?:resigns?|withdraws?|qualified opinion)\b/i,
+    /\bSEC (?:asks?|requires?|orders?) (?:restat(?:e|ement))/i,
+    /\bfinancial (?:restatement|irregularit)\b/i,
+    /\binternal controls? (?:weakness|failure|deficiency)\b/i,
+  ],
 };
 
 const ALL_CATEGORIES = Object.keys(TRIGGER_PATTERNS);
@@ -281,6 +291,20 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // CFO departure — signals potential accounting/controls risk; always material
+  if (categories.includes("csuite") &&
+      /\bCFO (?:resigns?|steps? down|departs?|fired)\b/i.test(title)) return true;
+  // Restatement — catastrophic for equity; always 10-30%+ move
+  if (categories.includes("restatement")) return true;
+  // Earnings beat + guidance raise on same report — strongest bullish fundamental signal
+  if (categories.includes("earnings") && categories.includes("guidance") &&
+      /\b(?:raises?|lifts?|boosts?|hikes?) (?:guidance|forecast|outlook|full[- ]year)/i.test(title)) return true;
+  // Earnings miss + guidance cut on same report — strongest bearish signal
+  if (categories.includes("earnings") && categories.includes("guidance") &&
+      /\b(?:cuts?|lowers?|slashes?|trims?|withdraws?|suspends?) (?:guidance|forecast|outlook)/i.test(title)) return true;
+  // Dividend suspension at large-cap — signals severe cash stress
+  if (categories.includes("corporate") &&
+      /\bsuspends? (?:its )?dividend\b/i.test(title)) return true;
   return false;
 }
 
