@@ -193,6 +193,34 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
   analyst: [
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBank of America (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBofA (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti(?:group)? (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+  ],
+  // Secondary / follow-on equity offerings and convertible notes — reliable dilution signal.
+  offering: [
+    /\bprices? (?:public |secondary |follow[- ]on |underwritten )(?:offering|equity offering)/i,
+    /\bannounces? (?:public |secondary |follow[- ]on )(?:offering|equity offering)/i,
+    /\bsecondary (?:stock |share )?offering\b/i,
+    /\bfollow[- ]on (?:stock |share )?offering\b/i,
+    /\bprices? \d[\d.,]* million (?:shares?|common shares?)/i,
+    /\bconvertible (?:notes?|senior notes?) offering\b/i,
+    /\bat[- ]the[- ]market (?:offering|ATM program)/i,
+    /\bsells? \d[\d.,]* million (?:shares?|common shares?) (?:at|in a|via)\b/i,
+  ],
+  // Profit warnings and negative pre-announcements — severe guidance revision before earnings.
+  warning: [
+    /\bprofit warning\b/i,
+    /\bissues? (?:a )?(?:profit |revenue |sales )?warning\b/i,
+    /\bpre[- ]?announces? (?:below|lower|weak|negative|miss)/i,
+    /\bpre[- ]?announces? (?:Q[1-4]|quarterly|annual) (?:results?|earnings?)/i,
+    /\bwarns? (?:of |on )?(?:lower|weak|below[- ]consensus) (?:earnings?|results?|revenue|guidance)/i,
+    /\bslashes? (?:its )?(?:quarterly |annual |full[- ]year )?(?:guidance|earnings|forecast)/i,
+    /\blowers? (?:its )?full[- ]year (?:guidance|forecast|outlook) (?:well )?below/i,
+    /\bshortfall\b.{0,40}(?:revenue|earnings|guidance)/i,
   ],
 };
 
@@ -257,10 +285,12 @@ const TRUSTED_SOURCES = new Set<string>([
 // ════════════════════════════════════════════════════════════════
 
 function detectHighImpact(title: string, categories: string[]): boolean {
-  // Earnings beat by ≥10%
+  // Earnings beat OR miss by ≥10%
   if (categories.includes("earnings")) {
-    const m = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
-    if (m && parseInt(m[1]) >= 10) return true;
+    const beatM = title.match(/beat(?:s|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (beatM && parseInt(beatM[1]) >= 10) return true;
+    const missM = title.match(/miss(?:es|ing)?\s+(?:by\s+)?(\d+)%/i);
+    if (missM && parseInt(missM[1]) >= 10) return true;
   }
   // FDA approval (always high-impact for biotech)
   if (categories.includes("fda") && /\bFDA approv(?:al|es|ed)\b/.test(title)) return true;
@@ -281,6 +311,21 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Activist investor / 13D filing — always high-impact for S&P 500 names
+  if (categories.includes("csuite") &&
+      /\b(?:activist (?:investor|stake|campaign)|13D filing|proxy fight)\b/i.test(title)) return true;
+  // Large buyback ($5B+) — material capital return signal
+  if (categories.includes("corporate")) {
+    const bbM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)\s+(?:buyback|repurchase)/i);
+    if (bbM && parseFloat(bbM[1]) >= 5) return true;
+  }
+  // Profit warning — negative pre-announcement before scheduled earnings
+  if (categories.includes("warning")) return true;
+  // Secondary offering $1B+ — material dilution event
+  if (categories.includes("offering")) {
+    const offM = title.match(/\$(\d+(?:\.\d+)?)\s*(?:B|billion)/i);
+    if (offM && parseFloat(offM[1]) >= 1) return true;
+  }
   return false;
 }
 
