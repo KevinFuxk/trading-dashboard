@@ -191,8 +191,37 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
-    /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
-    /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // — Tier 1 bulge-bracket: unambiguous analyst verbs (upgrade/downgrade/initiate)
+    /\b(?:Goldman Sachs?|Goldman) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bJ\.?P\.?\s*Morgan(?:\s+Chase)? (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Bank of America|BofA(?:\s+Securities)?|Merrill Lynch) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Citigroup|Citi(?:group)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Wells Fargo(?:\s+Securities)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    // — Tier 1: price-target raises/cuts (require "price target" to avoid matching dividend/earnings news)
+    /\b(?:Goldman Sachs?|Goldman|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citigroup|Citi) (?:raises?|cuts?) (?:(?:price )?target|PT)\b/i,
+    // — Tier 2 significant sell-side
+    /\bUBS (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Deutsche Bank|DB Research) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Jefferies(?:\s+Group)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:RBC Capital Markets?|RBC) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Raymond James) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Truist(?:\s+Securities)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Mizuho(?:\s+Securities)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Evercore(?:\s+ISI)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:TD Cowen|Cowen(?:\s+& Company)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Piper Sandler|Piper Jaffray) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Wolfe Research|Wolfe) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Bernstein|AllianceBernstein|Sanford Bernstein) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:KeyBanc(?:\s+Capital Markets?)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bHSBC (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bNomura (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Stifel(?:\s+(?:Financial|Nicolaus))?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\bWedbush (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    /\b(?:Guggenheim(?:\s+Securities)?) (?:upgrades?|downgrades?|initiates?|resumes?)/i,
+    // — Cross-bank double upgrade (any bank — universally high-signal)
+    /\bdouble[- ]upgrade\b/i,
   ],
 };
 
@@ -250,6 +279,8 @@ const TRUSTED_SOURCES = new Set<string>([
   // Tier B — official company PR wires (high-trust for company-issued news)
   "PR Newswire", "Business Wire", "GlobeNewswire", "Globe Newswire",
   "PRNewswire", "BusinessWire",
+  // Tier C — Dow Jones wire (same parent as WSJ/Barron's, appears as distinct source in Finviz)
+  "Dow Jones Newswires", "Dow Jones", "DJ",
 ]);
 
 // ════════════════════════════════════════════════════════════════
@@ -281,6 +312,12 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Double upgrade from any bank, or Buy/Overweight initiation by a tier-1 bank
+  if (categories.includes("analyst")) {
+    if (/\bdouble[- ]upgrade\b/i.test(title)) return true;
+    if (/\b(?:Goldman|Morgan Stanley|J\.?P\.?\s*Morgan|Bank of America|BofA|Citigroup|Citi)\b/i.test(title) &&
+        /\b(?:initiates?|resumes?) (?:at |with )?(?:Buy|Overweight|Strong Buy|Outperform)\b/i.test(title)) return true;
+  }
   return false;
 }
 
