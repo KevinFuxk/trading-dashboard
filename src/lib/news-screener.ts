@@ -191,8 +191,46 @@ const TRIGGER_PATTERNS: Record<string, RegExp[]> = {
     /\bmajor (?:contract|partnership|deal) with/i,
   ],
   analyst: [
+    // Bulge bracket — highest institutional weight
     /\b(?:Goldman Sachs|Goldman) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
     /\bJ\.?P\.?\s*Morgan (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bMorgan Stanley (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:Bank of America|BofA) (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCitigroup (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bCiti (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bWells Fargo (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bDeutsche Bank (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bBarclays (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bUBS (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bRBC (?:Capital Markets? )?(?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    // Tier 2 — active institutional sell-side with meaningful market impact
+    /\bJefferies (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\b(?:TD )?Cowen (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bPiper Sandler (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bNeedham (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bWedbush (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bMizuho (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bStifel (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bKeyBanc (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bRaymond James (?:upgrades?|downgrades?|raises?|cuts?|initiates?)/i,
+    /\bOppenheimer (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    /\bBernstein (?:upgrades?|downgrades?|raises?|cuts?|initiates?)\b/i,
+    // Price target changes (any firm, reported by trusted sources)
+    /\braises? (?:price )?target(?: on \S+)? to \$[\d,]+/i,
+    /\bcuts? (?:price )?target(?: on \S+)? to \$[\d,]+/i,
+    /\blifts? (?:price )?target(?: on \S+)? to \$[\d,]+/i,
+    /\blowers? (?:price )?target(?: on \S+)? to \$[\d,]+/i,
+    /\bprice target (?:raised|increased|lifted|cut|lowered|reduced)(?: to)? \$[\d,]+/i,
+  ],
+  // Share offerings — dilutive events, commonly bearish catalysts
+  secondary: [
+    /\bsecondary offering\b/i,
+    /\bfollow[- ]on (?:public )?offering\b/i,
+    /\bregistered direct offering\b/i,
+    /\bat[- ]the[- ]market (?:offering|equity program)\b/i,
+    /\b(?:prices?|launches?|announces?|completes?) (?:an? )?\$[\d.]+ (?:million|billion) (?:public |common )?stock offering\b/i,
+    /\bprices? (?:an?|its) (?:public )?offering of [\d,]+ (?:million )?shares?\b/i,
+    /\b\$[\d.]+\s*(?:B|billion) (?:public )?(?:equity|stock|share) offering\b/i,
   ],
 };
 
@@ -281,6 +319,21 @@ function detectHighImpact(title: string, categories: string[]): boolean {
       /\b(?:withdraws?|suspends?|pulls?|cuts?|lowers?|slashes?|trims?) (?:guidance|forecast|outlook)\b/i.test(title)) return true;
   // CEO out + activist combo (rare but seismic)
   if (categories.includes("csuite") && categories.includes("ma")) return true;
+  // Tier 1 bank upgrade/initiation to strong-buy conviction — moves large-caps 2-5%
+  if (categories.includes("analyst")) {
+    const TIER1 = /\b(?:Goldman(?:\s+Sachs)?|J\.?P\.?\s*Morgan|Morgan Stanley|Bank of America|BofA|Citigroup|Citi(?!\w))\b/i;
+    const BUY   = /\b(?:Buy|Overweight|Outperform|Strong Buy)\b/i;
+    const SELL  = /\b(?:Sell|Underweight|Underperform|Reduce)\b/i;
+    if (TIER1.test(title)) {
+      if (/\b(?:upgrades?|initiates?)\b/i.test(title) && BUY.test(title)) return true;
+      if (/\bdowngrades?\b/i.test(title) && SELL.test(title)) return true;
+    }
+  }
+  // Share offering $1B+ — major dilution signal, typically -3 to -8%
+  if (categories.includes("secondary")) {
+    const m = title.match(/\$([\d.]+)\s*(B|billion)\b/i);
+    if (m && parseFloat(m[1]) >= 1) return true;
+  }
   return false;
 }
 
